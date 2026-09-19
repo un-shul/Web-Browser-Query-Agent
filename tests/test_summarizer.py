@@ -249,3 +249,14 @@ def test_legitimate_punctuation_still_survives_url_stripping():
     out = S.clean_text("Roughly 30% of light-dependent energy (NADPH) is lost.")
     for token in ("30%", "light-dependent", "(NADPH)"):
         assert token in out
+
+
+def test_period_restored_after_closing_paren():
+    """The model sometimes ends a sentence on ')' and drops the period."""
+    out = S.fix_punctuation("chemical energy (sugar) The oxygen we breathe is free.")
+    assert "(sugar). The oxygen" in out
+
+
+def test_paren_followed_by_lowercase_is_left_alone():
+    out = S.fix_punctuation("oxygen (O 2 ) and energy stored in glucose.")
+    assert "). and" not in out

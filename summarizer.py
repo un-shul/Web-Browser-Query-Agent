@@ -141,6 +141,11 @@ def clean_text(text: str) -> str:
 
 
 def fix_punctuation(text: str) -> str:
+    # The model sometimes ends a sentence on a closing parenthesis and omits
+    # the period, giving "chemical energy (sugar) The oxygen we breathe...".
+    # Restricted to ')' followed by a capitalised word: a bare lowercase-then-
+    # capital rule would split legitimate mid-sentence proper nouns.
+    text = re.sub(r"\)\s+(?=[A-Z])", "). ", text)
     text = re.sub(r"\s+([.!?,:;])", r"\1", text)
     text = re.sub(r"([.!?])\s*", r"\1 ", text)
     text = re.sub(r"([,:;])\s*", r"\1 ", text)
