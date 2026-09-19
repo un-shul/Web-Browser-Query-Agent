@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# What the test suite actually needs. Deliberately excludes the local model
+# stack: conftest stubs the embedder, the summariser tests exercise only its
+# pure text functions, and the classifier loads from JSON -- so torch,
+# transformers, sentence-transformers, scikit-learn and pandas are all unused
+# by the tests despite the code supporting them. Installing them would add
+# ~1.3GB and several minutes to CI for no additional coverage.
+chromadb==1.3.0
+pytest==8.4.2
+responses==0.25.8

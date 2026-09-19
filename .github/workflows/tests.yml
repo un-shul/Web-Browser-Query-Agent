@@ -1,0 +1,79 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes an in-flight run for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what Vercel runs; 3.13 catches deprecations early.
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install test dependencies
+        # Not requirements-local.txt: the suite stubs the embedder and the
+        # classifier loads from JSON, so torch and friends add ~1.3GB and
+        # several minutes for no extra coverage.
+        run: pip install -r requirements-test.txt
+
+      - name: Run tests
+        run: pytest tests/ -q
+
+  offline:
+    name: no network access
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - run: pip install -r requirements-test.txt
+
+      - name: Run the suite with every non-loopback socket blocked
+        # The suite is meant to need no network. Enforced rather than
+        # asserted: it silently stopped being true twice before.
+        run: python scripts/run_tests_offline.py tests/ -q
+
+  bundle:
+    name: production bundle imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install production dependencies only
+        run: pip install -r requirements.txt pytest
+
+      - name: Import every module the deployed function loads
+        # The deploy target installs only requirements.txt. A module-level
+        # import of anything outside it crashes every request, which is how
+        # the first deployment of this project failed.
+        run: pytest tests/test_production_bundle.py -q

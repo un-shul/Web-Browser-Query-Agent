@@ -1,5 +1,7 @@
 # Web Browser Query Agent
 
+[![tests](https://github.com/un-shul/Web-Browser-Query-Agent/actions/workflows/tests.yml/badge.svg)](https://github.com/un-shul/Web-Browser-Query-Agent/actions/workflows/tests.yml)
+
 A query agent that answers natural-language questions by searching the web,
 scraping the results, and summarising them — while reusing earlier answers from
 a semantic cache when, and only when, they are still valid.
@@ -273,17 +275,30 @@ whichever model sits behind it.
 ## Tests
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-test.txt
 pytest
 ```
 
-365 tests, and the suite makes **no network calls** — verified by running it
+CI runs three jobs on every push: the suite on Python 3.12 and 3.13, the
+suite again with every non-loopback socket blocked, and an import of every
+module the deployed function loads using only the production dependencies.
+
+383 tests, and the suite makes **no network calls** — verified by running it
 with every non-loopback socket blocked, not by assumption. An autouse fixture
 disables the LLM, a stub embedder avoids downloading MiniLM, and
 `HF_HUB_OFFLINE` stops huggingface_hub checking for model updates.
 
 That last one was not theoretical. Before it was set the suite made 84
 outbound requests and took 77 seconds; it now takes 7.
+
+`scripts/run_tests_offline.py` enforces it: it blocks every non-loopback
+socket and fails if anything tried to connect, even when the test itself
+swallowed the error. CI runs it, because this property stopped being true
+twice without anyone noticing.
+
+Tests need none of the local model stack -- the embedder is stubbed and the
+classifier loads from JSON -- so `requirements-test.txt` omits torch and
+friends, keeping CI to 96 packages rather than 1.3GB.
 
 `tests/test_quota_guard.py` asserts the exact number of LLM calls for each
 query class, which is what stops a refactor from quietly burning through a

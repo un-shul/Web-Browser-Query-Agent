@@ -15,7 +15,6 @@ import os
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-import chromadb
 import pytest
 
 from queryagent import cache as cachemod
@@ -69,7 +68,14 @@ def stub_embedder(monkeypatch):
 
 @pytest.fixture
 def cache(monkeypatch):
-    """A fresh in-memory cache per test."""
+    """A fresh in-memory cache per test.
+
+    chromadb is imported here rather than at module scope so that test files
+    which do not use this fixture -- test_production_bundle.py in particular --
+    can run in an environment with only the production dependencies installed.
+    """
+    import chromadb
+
     client = chromadb.EphemeralClient()
 
     class MemoryCache(cachemod.ChromaDBCache):

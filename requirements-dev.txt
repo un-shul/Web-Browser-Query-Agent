@@ -1,8 +1,7 @@
 -r requirements-local.txt
+-r requirements-test.txt
 
-pytest==8.4.2
-responses==0.25.8
-
-# Headless-browser fallback for JS-heavy pages. Local only; cannot run on
-# Vercel serverless. After installing: python -m playwright install chromium
+# Headless-browser fallback for JS-heavy pages, and for driving the UI while
+# working on it. Local only; cannot run on Vercel serverless.
+# After installing: python -m playwright install chromium
 playwright==1.56.0
