@@ -11,9 +11,14 @@ suite, and walks the entry points rather than a hand-written list, so a new
 module cannot quietly reintroduce the problem.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
+
+# The subprocesses below import queryagent, so they need the repository root on
+# sys.path regardless of where pytest was invoked from.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import pytest
 
@@ -47,6 +52,7 @@ PRODUCTION_MODULES = [
 
 SCRIPT = textwrap.dedent("""
     import builtins, os, sys
+    sys.path.insert(0, {root!r})
     BLOCKED = set({blocked!r})
     real_import = builtins.__import__
     def guarded(name, *a, **kw):
@@ -78,7 +84,9 @@ SCRIPT = textwrap.dedent("""
 
 def _run(modules, blocked=LOCAL_ONLY):
     return subprocess.run(
-        [sys.executable, "-c", SCRIPT.format(blocked=blocked, modules=modules)],
+        [sys.executable, "-c",
+         SCRIPT.format(blocked=blocked, modules=modules, root=REPO_ROOT)],
+        cwd=REPO_ROOT,
         capture_output=True, text=True, timeout=180,
     )
 
@@ -101,8 +109,9 @@ def test_the_flask_entry_point_imports():
 def test_the_app_object_exists_and_is_wsgi():
     result = subprocess.run(
         [sys.executable, "-c",
+         f"import sys; sys.path.insert(0, {REPO_ROOT!r}); "
          "import app; assert callable(app.app); print(type(app.app).__name__)"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, cwd=REPO_ROOT,
     )
     assert result.returncode == 0, result.stderr
     assert "Flask" in result.stdout
@@ -123,6 +132,7 @@ def test_chroma_backend_reports_the_fix_when_unavailable():
     a bare "No module named 'chromadb'" mid-query, which names neither the
     cause nor the fix."""
     script = (
+        f"import sys; sys.path.insert(0, {REPO_ROOT!r})\n"
         "import builtins\n"
         "real = builtins.__import__\n"
         "def g(n, *a, **k):\n"
@@ -137,7 +147,8 @@ def test_chroma_backend_reports_the_fix_when_unavailable():
         "    print(str(e))\n"
     )
     result = subprocess.run([sys.executable, "-c", script],
-                            capture_output=True, text=True, timeout=120)
+                            capture_output=True, text=True, timeout=120,
+                            cwd=REPO_ROOT)
     assert result.returncode == 0, result.stderr
     out = result.stdout
     assert "VECTOR_STORE=upstash" in out
