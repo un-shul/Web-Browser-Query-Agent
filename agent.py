@@ -60,6 +60,7 @@ def _json_candidates() -> List[str]:
 _state: Optional[dict] = None
 _load_attempted = False
 _lock = threading.Lock()
+_dim_warned = False
 
 
 def _load_json_artifact() -> Optional[dict]:
@@ -156,11 +157,18 @@ def classify_query_with_confidence(
         if state["kind"] == "json":
             coef = state["coef"]
             if len(vec) != len(coef):
-                log.warning(
-                    "embedding dim %d != classifier dim %d; skipping gate",
-                    len(vec),
-                    len(coef),
-                )
+                # A permanent property of the configuration, not a per-query
+                # event, so say it once rather than on every request.
+                global _dim_warned
+                if not _dim_warned:
+                    _dim_warned = True
+                    log.warning(
+                        "embedding is %d-dim but the classifier expects %d; "
+                        "validity gate disabled. Train a matching artifact with "
+                        "`python train_classifier.py --provider %s`.",
+                        len(vec), len(coef),
+                        "gemini" if len(vec) == 768 else "local",
+                    )
                 return "unknown", None
             z = sum(c * v for c, v in zip(coef, vec)) + state["intercept"]
             p_valid = _sigmoid(z)
