@@ -82,6 +82,12 @@ full decision flow.
 app still runs on the classifier, the regex heuristics and a fixed similarity
 threshold — which is exactly how it behaved before these layers existed.
 
+> **[docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md)** is the full reference:
+> a plain-language explanation, every measurement behind a threshold, the
+> reasoning for each design decision, known weaknesses, and the questions the
+> design invites. Start there if you want to understand *why* rather than
+> *how to run it*.
+
 ## Layout
 
 ```
