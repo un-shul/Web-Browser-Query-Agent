@@ -87,10 +87,14 @@ Requires Python 3.12.
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-local.txt   # local model stack
 
 cp .env.example .env     # then add a TAVILY_API_KEY, see below
 ```
+
+`requirements.txt` holds only the four production dependencies; the local
+model stack lives in `requirements-local.txt`. That split exists because
+Vercel's Python bundle limit is 500 MB and torch alone is 547 MB.
 
 Train the validity classifier (downloads ~90MB on first run):
 
@@ -105,9 +109,16 @@ and it is committed — so you can skip this step unless you want to retrain.
 Run it:
 
 ```bash
-python main.py     # CLI
-python app.py      # web UI at http://127.0.0.1:5000
+python main.py       # CLI
+python app.py        # web UI at http://127.0.0.1:5000
+python preflight.py  # check every backend with a live call
 ```
+
+`preflight.py` is worth running before any deploy. Every check makes a real
+request, because the failures that matter are the ones a config file cannot
+show: a retired model id, an index created with the wrong dimension, a key
+that was never activated. Two of the three model ids this project started with
+had been withdrawn by the time it was deployed.
 
 ## API keys
 
@@ -144,6 +155,68 @@ model stack in development and hosted APIs in production:
 All defaults are the local stack, so a fresh clone works with no keys at all.
 See `.env.example` for the full list.
 
+## Deploying
+
+The app runs two interchangeable stacks, selected by environment variable:
+
+| | local (default) | production |
+|---|---|---|
+| Embeddings | all-MiniLM-L6-v2, 384d | `gemini-embedding-001`, 768d |
+| Inference | — (heuristics only) | Gemini, Groq fallback |
+| Summarising | distilbart | Gemini / Groq |
+| Vector store | ChromaDB on disk | Upstash Vector |
+| Install size | ~1.3 GB | ~25 MB |
+
+Production is not a preference — it is a requirement. Serverless has no
+writable filesystem, so `chromadb.PersistentClient` has nowhere to live, and
+the local model stack is 2.6× the bundle limit on its own.
+
+```bash
+# 1. Create a free Upstash Vector index: 768 dimensions, COSINE distance.
+#    The dimension must match GEMINI_EMBED_DIM, and is fixed at creation.
+
+# 2. Set the environment variables in the Vercel dashboard:
+#      TAVILY_API_KEY  GEMINI_API_KEY  GROQ_API_KEY
+#      UPSTASH_VECTOR_REST_URL  UPSTASH_VECTOR_REST_TOKEN
+#      LLM_PROVIDER=chain  EMBED_PROVIDER=gemini
+#      VECTOR_STORE=upstash  SUMMARIZER=llm
+
+# 3. Verify the same configuration locally first
+python preflight.py --prod
+
+# 4. Deploy
+npx vercel --prod
+```
+
+Vercel detects Flask from the top-level `app` in `app.py`; no handler wrapper
+or `api/` directory is needed. `vercel.json` sets a 120 s ceiling and excludes
+the local-stack files from the bundle.
+
+### Thresholds are per-embedding-model
+
+Cosine ranges differ enough between the two embedders that one set of numbers
+cannot serve both. Measured on the same 13 query pairs:
+
+| | MiniLM (384d) | Gemini (768d) |
+|---|---|---|
+| equivalent | 0.918 – 0.965 | 0.968 – 0.990 |
+| quantity conflict | 0.806 – 0.914 | 0.962 – 0.971 |
+| polarity conflict | 0.954 | 0.966 |
+| direction conflict | 0.997 | 0.988 |
+| different entity | 0.464 – 0.624 | 0.883 – 0.892 |
+| unrelated | 0.016 – 0.052 | 0.652 – 0.704 |
+
+Two things follow. MiniLM's 0.60 retrieval floor would admit every unrelated
+pair under Gemini, where unrelated tops out at 0.704. And under Gemini the
+equivalent and quantity-conflict bands *overlap* — 0.968 against 0.971 — so no
+threshold can separate a real paraphrase from "under 50000" versus "under
+100000". Auto-accept is therefore near-exact-match only in production, and the
+verifier sees almost everything.
+
+This is also why the deterministic mismatch guard matters more with better
+embeddings rather than less: it compares query text, so it is unaffected by
+whichever model sits behind it.
+
 ## Tests
 
 ```bash
@@ -151,7 +224,14 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite makes **no network calls**. LLM responses are replayed from a
-recorded cassette, and a stub embedder avoids downloading MiniLM in CI. One
-test asserts the exact number of LLM calls made per query class, which is what
-stops a refactor from quietly burning through the free tier.
+365 tests, and the suite makes **no network calls** — verified by running it
+with every non-loopback socket blocked, not by assumption. An autouse fixture
+disables the LLM, a stub embedder avoids downloading MiniLM, and
+`HF_HUB_OFFLINE` stops huggingface_hub checking for model updates.
+
+That last one was not theoretical. Before it was set the suite made 84
+outbound requests and took 77 seconds; it now takes 7.
+
+`tests/test_quota_guard.py` asserts the exact number of LLM calls for each
+query class, which is what stops a refactor from quietly burning through a
+daily quota.

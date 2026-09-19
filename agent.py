@@ -30,8 +30,32 @@ import embeddings
 
 log = logging.getLogger(__name__)
 
-JSON_ARTIFACT = "classifier.json"
 PICKLE_ARTIFACT = "classifier.pkl"
+
+
+def _json_candidates() -> List[str]:
+    """Artifact files to try, best match for the active embedder first.
+
+    A classifier trained on 384-dim MiniLM vectors is meaningless applied to
+    768-dim Gemini ones, so the artifacts are named by dimensionality and both
+    can sit in the repo. Whichever backend is configured, the gate keeps
+    working.
+    """
+    names = []
+    try:
+        import embeddings
+
+        dim = embeddings.embedding_dim()
+        if dim:
+            names.append(f"classifier-{dim}.json")
+    except Exception:
+        pass
+    names += ["classifier.json"]
+    names += sorted(
+        n for n in os.listdir(".")
+        if n.startswith("classifier-") and n.endswith(".json") and n not in names
+    ) if os.path.isdir(".") else []
+    return names
 
 _state: Optional[dict] = None
 _load_attempted = False
@@ -39,21 +63,24 @@ _lock = threading.Lock()
 
 
 def _load_json_artifact() -> Optional[dict]:
-    if not os.path.isfile(JSON_ARTIFACT):
-        return None
-    try:
-        with open(JSON_ARTIFACT) as fh:
-            blob = json.load(fh)
-        coef = [float(x) for x in blob["coef"]]
-        return {
-            "kind": "json",
-            "coef": coef,
-            "intercept": float(blob["intercept"]),
-            "dim": int(blob.get("dim", len(coef))),
-        }
-    except Exception as exc:
-        log.warning("could not read %s: %s", JSON_ARTIFACT, exc)
-        return None
+    for path in _json_candidates():
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as fh:
+                blob = json.load(fh)
+            coef = [float(x) for x in blob["coef"]]
+            return {
+                "kind": "json",
+                "coef": coef,
+                "intercept": float(blob["intercept"]),
+                "dim": int(blob.get("dim", len(coef))),
+                "path": path,
+                "embedding_model": blob.get("embedding_model", ""),
+            }
+        except Exception as exc:
+            log.warning("could not read %s: %s", path, exc)
+    return None
 
 
 def _load_pickle_artifact() -> Optional[dict]:
@@ -80,10 +107,12 @@ def _get_state() -> Optional[dict]:
             _load_attempted = True
             if _state is None:
                 log.warning(
-                    "no classifier artifact found (%s / %s); validity gate disabled",
-                    JSON_ARTIFACT,
-                    PICKLE_ARTIFACT,
+                    "no classifier artifact found (tried %s, %s); validity gate disabled",
+                    ", ".join(_json_candidates()), PICKLE_ARTIFACT,
                 )
+            elif _state.get("path"):
+                log.info("classifier loaded from %s (%s, %d dims)", _state["path"],
+                         _state.get("embedding_model", "?"), _state["dim"])
     return _state
 
 

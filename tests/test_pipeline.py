@@ -34,13 +34,13 @@ def fake_web(monkeypatch):
             for r in results
         ]
 
-    def fake_summarize(text, query=None, **kwargs):
+    def fake_summarize(pages, combined, query):
         calls["summarize"] += 1
         return f"Summary for {query}."
 
     monkeypatch.setattr(pipeline, "search", fake_search)
     monkeypatch.setattr(pipeline, "fetch_contents", fake_fetch)
-    monkeypatch.setattr(pipeline, "summarize_text", fake_summarize)
+    monkeypatch.setattr(pipeline, "_summarize", fake_summarize)
     return calls
 
 
@@ -224,10 +224,17 @@ def test_summariser_failure_surfaces_as_an_error(cache, fake_web, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("model exploded")
 
-    monkeypatch.setattr(pipeline, "summarize_text", boom)
+    monkeypatch.setattr(pipeline, "_summarize", boom)
     result = final("what is photosynthesis")
     assert result.stage == "error"
     assert "model exploded" in result.message
+
+
+def test_empty_summary_surfaces_as_an_error(cache, fake_web, monkeypatch):
+    """Both summariser backends returning nothing must not yield a blank
+    answer card."""
+    monkeypatch.setattr(pipeline, "_summarize", lambda *a, **k: None)
+    assert final("what is photosynthesis").stage == "error"
 
 
 def test_run_collapses_the_stream_into_one_result(cache, fake_web):

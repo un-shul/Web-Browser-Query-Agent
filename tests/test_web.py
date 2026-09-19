@@ -31,8 +31,8 @@ def client(cache, monkeypatch):
             PageContent(r.url, r.title, "Body. " * 60, "scrape") for r in results
         ],
     )
-    monkeypatch.setattr(pipeline, "summarize_text",
-                        lambda text, query=None, **kw: f"Summary for {query}.")
+    monkeypatch.setattr(pipeline, "_summarize",
+                        lambda pages, combined, query: f"Summary for {query}.")
     app_module.app.config["TESTING"] = True
     return app_module.app.test_client()
 

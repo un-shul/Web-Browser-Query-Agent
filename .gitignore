@@ -23,5 +23,6 @@ chroma_db/
 *.pkl
 !classifier.json
 
+.embed_cache.json
 *.log
 .DS_Store

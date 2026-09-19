@@ -364,15 +364,11 @@ class ChromaDBCache:
         """Existing entry id for this exact question, if any."""
         wanted = " ".join((query or "").strip().lower().split())
         try:
-            got = self.collection.get()
+            for entry_id, doc, _meta in self.list_entries():
+                if " ".join((doc or "").strip().lower().split()) == wanted:
+                    return entry_id
         except Exception:
             return None
-        for i, entry_id in enumerate(got.get("ids") or []):
-            if entry_id == _MIGRATION_EPOCH_KEY:
-                continue
-            doc = (got.get("documents") or [""])[i] or ""
-            if " ".join(doc.strip().lower().split()) == wanted:
-                return entry_id
         return None
 
     def touch(self, entry_id: str) -> None:
@@ -424,21 +420,19 @@ class ChromaDBCache:
 
     def purge_expired(self, limit: int = 500, now: Optional[int] = None) -> int:
         now = now or _now()
+        epoch = self.migration_epoch
         try:
-            got = self.collection.get(limit=limit)
+            doomed = [
+                entry_id
+                for entry_id, _doc, meta in self.list_entries()[:limit]
+                if now >= _normalize_meta(meta, epoch)["expires_at"]
+            ]
         except Exception as exc:
             log.warning("purge failed: %s", exc)
             return 0
-        epoch = self.migration_epoch
-        doomed = [
-            entry_id
-            for i, entry_id in enumerate(got.get("ids") or [])
-            if entry_id != _MIGRATION_EPOCH_KEY
-            and now >= _normalize_meta((got.get("metadatas") or [{}])[i], epoch)["expires_at"]
-        ]
         if doomed:
             try:
-                self.collection.delete(ids=doomed)
+                self.delete(doomed)
             except Exception as exc:
                 log.warning("purge delete failed: %s", exc)
                 return 0
@@ -448,16 +442,13 @@ class ChromaDBCache:
 
     def get_cache_stats(self) -> Dict[str, Any]:
         try:
-            got = self.collection.get()
             epoch = self.migration_epoch
             now = _now()
             by_volatility: Dict[str, int] = {}
             expired = legacy = 0
             ages: List[int] = []
-            for i, entry_id in enumerate(got.get("ids") or []):
-                if entry_id == _MIGRATION_EPOCH_KEY:
-                    continue
-                meta = _normalize_meta((got.get("metadatas") or [{}])[i], epoch)
+            for _entry_id, _doc, raw_meta in self.list_entries():
+                meta = _normalize_meta(raw_meta, epoch)
                 by_volatility[meta["volatility"]] = by_volatility.get(meta["volatility"], 0) + 1
                 if now >= meta["expires_at"]:
                     expired += 1
@@ -473,13 +464,21 @@ class ChromaDBCache:
                 "legacy_entries": legacy,
                 "by_volatility": by_volatility,
                 "avg_age_seconds": int(sum(ages) / len(ages)) if ages else 0,
-                "collection_name": self.collection.name,
-                "database_path": config.CHROMA_PATH,
                 "schema_version": SCHEMA_VERSION,
+                **self._backend_stats(),
             }
         except Exception as exc:
             log.warning("stats failed: %s", exc)
             return {"error": str(exc)}
+
+    def _backend_stats(self) -> Dict[str, Any]:
+        """Fields only this backend can report. Overridden per backend so the
+        shared stats builder never touches storage internals."""
+        return {
+            "backend": "chroma",
+            "collection_name": self.collection.name,
+            "database_path": config.CHROMA_PATH,
+        }
 
     def clear_cache(self) -> None:
         try:
@@ -492,6 +491,23 @@ class ChromaDBCache:
             log.info("cache cleared")
         except Exception as exc:
             log.warning("clear failed: %s", exc)
+
+    def list_entries(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """(id, document, metadata) for every entry, marker excluded."""
+        got = self.collection.get()
+        out = []
+        for i, entry_id in enumerate(got.get("ids") or []):
+            if entry_id == _MIGRATION_EPOCH_KEY:
+                continue
+            out.append((
+                entry_id,
+                (got.get("documents") or [""])[i] or "",
+                (got.get("metadatas") or [{}])[i] or {},
+            ))
+        return out
+
+    def delete(self, ids: Sequence[str]) -> None:
+        self.collection.delete(ids=list(ids))
 
     # --- legacy single-candidate API ---------------------------------------
 
@@ -519,7 +535,10 @@ def get_cache() -> "ChromaDBCache":
         return _cache_db
     with _cache_lock:
         if _cache_db is None:  # re-check under the lock
-            _cache_db = ChromaDBCache()
+            if config.VECTOR_STORE == "upstash":
+                _cache_db = UpstashCache()
+            else:
+                _cache_db = ChromaDBCache()
     return _cache_db
 
 
@@ -562,7 +581,7 @@ def view_all_cache():
     """All cached entries, newest first."""
     cache = get_cache()
     try:
-        got = cache.collection.get()
+        rows = cache.list_entries()
     except Exception as exc:
         log.warning("view failed: %s", exc)
         return []
@@ -570,14 +589,12 @@ def view_all_cache():
     epoch = cache.migration_epoch
     now = _now()
     items = []
-    for i, entry_id in enumerate(got.get("ids") or []):
-        if entry_id == _MIGRATION_EPOCH_KEY:
-            continue
-        meta = _normalize_meta((got.get("metadatas") or [{}])[i], epoch)
+    for entry_id, document, raw_meta in rows:
+        meta = _normalize_meta(raw_meta, epoch)
         summary = meta["summary"]
         items.append({
             "id": entry_id,
-            "query": (got.get("documents") or [""])[i],
+            "query": document,
             "summary": summary[:100] + "..." if len(summary) > 100 else summary,
             "full_summary": summary,
             "volatility": meta["volatility"],
@@ -601,7 +618,7 @@ def search_cache(search_term):
 
 def delete_cache_item(query_id):
     try:
-        get_cache().collection.delete(ids=[query_id])
+        get_cache().delete([query_id])
         return True
     except Exception as exc:
         log.warning("delete failed for %s: %s", query_id, exc)
@@ -610,3 +627,174 @@ def delete_cache_item(query_id):
 
 def delete_cache_by_query(query_text):
     return sum(1 for it in search_cache(query_text) if delete_cache_item(it["id"]))
+
+
+class UpstashCache(ChromaDBCache):
+    """The same cache over Upstash Vector instead of local ChromaDB.
+
+    Subclasses ChromaDBCache to inherit the parts that are storage-agnostic --
+    TTL policy, metadata normalisation, legacy backfill, stats -- and replaces
+    only the four operations that touch storage. Needed because serverless has
+    no writable filesystem for chromadb.PersistentClient.
+    """
+
+    def __init__(self, store=None):
+        import vector_store
+
+        self.store = store or vector_store.UpstashVectorStore()
+        self.collection = None  # nothing Chroma-shaped exists here
+        self._migration_epoch = None
+
+    @property
+    def migration_epoch(self) -> int:
+        """Pseudo-birthday for pre-TTL entries.
+
+        Upstash indexes are created by this project, so nothing predates the
+        schema and there is no real migration to date. Boot time is fine.
+        """
+        if self._migration_epoch is None:
+            self._migration_epoch = _now()
+        return self._migration_epoch
+
+    def list_entries(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        return [
+            (row["id"], row.get("document", ""), row.get("metadata") or {})
+            for row in self.store.list_all()
+        ]
+
+    def delete(self, ids: Sequence[str]) -> None:
+        self.store.delete(list(ids))
+
+    def find_similar_candidates(
+        self, query, k=None, floor=None, embedding=None,
+        include_expired=False, now=None,
+    ):
+        k = k or config.RERANK_K
+        floor = config.CANDIDATE_FLOOR if floor is None else floor
+        now = now or _now()
+
+        try:
+            vector = list(embedding) if embedding is not None else embeddings.encode_one(query)
+        except Exception as exc:
+            log.warning("could not embed query: %s", exc)
+            return [], []
+
+        try:
+            rows = self.store.query(vector, top_k=max(3 * k, 15))
+        except Exception as exc:
+            log.warning("upstash query failed: %s", exc)
+            return [], []
+
+        epoch = self.migration_epoch
+        fresh: List[Candidate] = []
+        expired: List[Candidate] = []
+        for row in rows:
+            # Upstash returns cosine similarity directly, not a distance.
+            similarity = float(row["score"])
+            if similarity < floor:
+                continue
+            meta = _normalize_meta(row.get("metadata") or {}, epoch)
+            if not meta["summary"]:
+                continue
+            cand = Candidate(
+                id=row["id"], query=row.get("document", ""), summary=meta["summary"],
+                similarity=similarity, volatility=meta["volatility"],
+                created_at=meta["created_at"], expires_at=meta["expires_at"],
+                ttl_seconds=meta["ttl_seconds"],
+                source_urls=_decode_urls(meta["source_urls"]),
+                router_source=meta["router_source"],
+                schema_version=meta["schema_version"], hit_count=meta["hit_count"],
+            )
+            (expired if cand.is_expired(now) else fresh).append(cand)
+
+        fresh.sort(key=lambda c: -c.similarity)
+        expired.sort(key=lambda c: -c.similarity)
+        return fresh[:k], expired[:k]
+
+    def add_to_cache(
+        self, query, summary, volatility=vp.DEFAULT_VOLATILITY, ttl_seconds=None,
+        canonical_query=None, source_urls=None, router_source="", embedding=None,
+    ):
+        volatility = vp.normalize_volatility(volatility)
+        ttl = vp.ttl_for(volatility, ttl_seconds)
+        if ttl <= 0:
+            log.info("not caching %r (ttl 0 for %s)", query[:50], volatility)
+            return None
+
+        created = _now()
+        try:
+            vector = list(embedding) if embedding is not None else embeddings.encode_one(query)
+        except Exception as exc:
+            log.warning("could not embed for cache write: %s", exc)
+            return None
+
+        entry_id = self._find_exact(query) or str(uuid.uuid4())
+        try:
+            self.store.upsert(entry_id, vector, query, {
+                "summary": summary,
+                "canonical_query": canonical_query or query,
+                "volatility": volatility,
+                "created_at": created,
+                "expires_at": vp.expires_at(created, ttl),
+                "ttl_seconds": ttl,
+                "source_urls": json.dumps(list(source_urls or [])),
+                "router_source": router_source,
+                "schema_version": SCHEMA_VERSION,
+                "hit_count": 0,
+                "last_hit_at": 0,
+            })
+        except Exception as exc:
+            log.warning("upstash write failed: %s", exc)
+            return None
+        log.info("cached %r as %s (ttl %ds)", query[:50], volatility, ttl)
+        return entry_id
+
+    def touch(self, entry_id: str) -> None:
+        """Record a hit.
+
+        Upstash has no metadata-only update, so bumping a counter means
+        re-sending the vector. Doing that on every cache hit would spend an
+        embedding call and an upsert to increment an integer nobody reads in
+        the hot path, and the free tier's daily budget is shared with real
+        queries. Hit counts are therefore only maintained on the ChromaDB
+        backend, where the update is local and free.
+        """
+        return
+
+    def backfill(self, candidate: Candidate) -> None:
+        if candidate.schema_version >= SCHEMA_VERSION:
+            return
+        guess, rule = vp.heuristic_volatility(candidate.query)
+        volatility = guess or vp.UNKNOWN
+        ttl = vp.ttl_for(volatility)
+        created = candidate.created_at or self.migration_epoch
+        try:
+            # Re-embed rather than fetch with includeVectors: one call either
+            # way, and this path is rare.
+            vector = embeddings.encode_one(candidate.query)
+            self.store.upsert(candidate.id, vector, candidate.query, {
+                "summary": candidate.summary,
+                "canonical_query": candidate.query,
+                "volatility": volatility,
+                "created_at": created,
+                "expires_at": vp.expires_at(created, ttl),
+                "ttl_seconds": ttl,
+                "source_urls": json.dumps(candidate.source_urls),
+                "router_source": f"backfill:{rule}" if rule else "backfill:default",
+                "schema_version": SCHEMA_VERSION,
+                "hit_count": candidate.hit_count,
+                "last_hit_at": _now(),
+            })
+        except Exception as exc:
+            log.debug("backfill failed for %s: %s", candidate.id, exc)
+
+    def _backend_stats(self) -> Dict[str, Any]:
+        return {"backend": "upstash"}
+
+    def clear_cache(self) -> None:
+        try:
+            self.store.reset()
+            self._migration_epoch = None
+            log.info("upstash index reset")
+        except Exception as exc:
+            log.warning("clear failed: %s", exc)

@@ -91,15 +91,40 @@ CHROMA_PATH = _str("CHROMA_PATH", "./chroma_db")
 CHROMA_COLLECTION = _str("CHROMA_COLLECTION", "query_cache")
 
 # --- Retrieval thresholds ----------------------------------------------------
-# Floor is deliberately well below the legacy 0.75: recall now comes from the
-# reranker, not from the similarity threshold.
-CANDIDATE_FLOOR = _float("CANDIDATE_FLOOR", 0.60)
+# Cosine ranges differ sharply between embedding models, so a single set of
+# numbers cannot serve both. Measured on the same 13 query pairs:
+#
+#                        MiniLM (384d)     gemini-embedding-001 (768d)
+#   equivalent           0.918 - 0.965         0.968 - 0.990
+#   quantity conflict    0.806 - 0.914         0.962 - 0.971
+#   polarity conflict    0.954                 0.966
+#   direction conflict   0.997                 0.988
+#   different entity     0.464 - 0.624         0.883 - 0.892
+#   unrelated            0.016 - 0.052         0.652 - 0.704
+#
+# Two consequences. MiniLM's 0.60 floor would admit every unrelated pair under
+# Gemini, where unrelated tops out at 0.704. And under Gemini the equivalent
+# and quantity-conflict bands *overlap* (0.968 vs 0.971), so no auto-accept
+# threshold can separate a genuine paraphrase from "under 50000" vs "under
+# 100000" -- auto-accept is therefore set high enough to be near-exact-match
+# only, and the verifier sees almost everything.
+#
+# This is also why the deterministic mismatch guard matters more, not less,
+# with better embeddings: it works on the query text, so it is unaffected by
+# whichever model is behind it.
+_THRESHOLDS = {
+    "local":  {"floor": 0.60, "auto_accept": 0.93,  "legacy": 0.75},
+    "gemini": {"floor": 0.80, "auto_accept": 0.995, "legacy": 0.93},
+}
+_t = _THRESHOLDS.get(EMBED_PROVIDER, _THRESHOLDS["local"])
+
+CANDIDATE_FLOOR = _float("CANDIDATE_FLOOR", _t["floor"])
 RERANK_K = _int("RERANK_K", 5)
-AUTO_ACCEPT_SIM = _float("AUTO_ACCEPT_SIM", 0.93)
+AUTO_ACCEPT_SIM = _float("AUTO_ACCEPT_SIM", _t["auto_accept"])
 RERANK_MIN_CONFIDENCE = _float("RERANK_MIN_CONFIDENCE", 0.70)
-# Used only when no LLM is reachable. This is the legacy behaviour, so degraded
-# mode is never worse than the pre-LLM app.
-LEGACY_SIM_THRESHOLD = _float("LEGACY_SIM_THRESHOLD", 0.75)
+# Used only when no LLM is reachable, so degraded mode is no worse than the
+# pre-verifier app was on the same embeddings.
+LEGACY_SIM_THRESHOLD = _float("LEGACY_SIM_THRESHOLD", _t["legacy"])
 
 # --- Classifier gate ---------------------------------------------------------
 LR_REJECT_P = _float("LR_REJECT_P", 0.05)

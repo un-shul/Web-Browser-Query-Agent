@@ -21,7 +21,6 @@ import config
 import embeddings
 import volatility_policy as vp
 from llm_gateway import reranker, router
-from summarizer import summarize_text
 from web_search import SearchError, fetch_contents, search
 
 log = logging.getLogger(__name__)
@@ -211,10 +210,13 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
     yield ProgressEvent("summarizing", "Summarising...", 80)
     combined = "\n\n".join(p.text[:5000] for p in pages)
     try:
-        summary = summarize_text(combined, query)
+        summary = _summarize(pages, combined, query)
     except Exception as exc:
         log.exception("summarisation failed")
         yield ProgressEvent("error", f"Summarisation failed: {exc}", 0)
+        return
+    if not summary:
+        yield ProgressEvent("error", "Could not produce an answer from those pages.", 0)
         return
 
     # --- cache write ---
@@ -235,6 +237,40 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
          "verdict": asdict(verdict), "cached_as": entry_id,
          "cache": dict(cache_trail, stored=entry_id is not None)},
     )
+
+
+def _summarize(pages, combined: str, query: str) -> Optional[str]:
+    """Summarise with the configured backend, falling back to the other.
+
+    SUMMARIZER=llm is required on serverless, where distilbart plus torch is
+    ~1.7GB against a 500MB bundle limit. The fallback runs the other way too,
+    so a rate-limited provider degrades to the local model rather than failing
+    the request -- when the local model is actually installed.
+    """
+    if config.SUMMARIZER == "llm":
+        import summarize_llm
+
+        answer = summarize_llm.summarize(pages, query)
+        if answer:
+            return answer
+        log.info("llm summariser unavailable; trying the local model")
+        try:
+            from summarizer import summarize_text
+
+            return summarize_text(combined, query)
+        except ImportError:
+            log.warning("no local summariser installed either")
+            return None
+
+    try:
+        from summarizer import summarize_text
+
+        return summarize_text(combined, query)
+    except ImportError:
+        log.info("local summariser not installed; trying the llm")
+        import summarize_llm
+
+        return summarize_llm.summarize(pages, query)
 
 
 def _human(seconds: int) -> str:

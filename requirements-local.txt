@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# The local model stack: free, offline, no API keys, and the development
+# default. Excluded from the deploy bundle -- see .vercelignore.
+chromadb==1.3.0
+sentence-transformers==5.1.2
+transformers==4.57.1
+scikit-learn==1.7.2
+pandas==2.3.3
