@@ -171,22 +171,47 @@ Production is not a preference — it is a requirement. Serverless has no
 writable filesystem, so `chromadb.PersistentClient` has nowhere to live, and
 the local model stack is 2.6× the bundle limit on its own.
 
-```bash
-# 1. Create a free Upstash Vector index: 768 dimensions, COSINE distance.
-#    The dimension must match GEMINI_EMBED_DIM, and is fixed at creation.
+**1. Create a free Upstash Vector index** with **768 dimensions** and
+**COSINE** distance. The dimension is fixed at creation and must equal
+`GEMINI_EMBED_DIM`.
 
-# 2. Set the environment variables in the Vercel dashboard:
-#      TAVILY_API_KEY  GEMINI_API_KEY  GROQ_API_KEY
-#      UPSTASH_VECTOR_REST_URL  UPSTASH_VECTOR_REST_TOKEN
-#      LLM_PROVIDER=chain  EMBED_PROVIDER=gemini
-#      VECTOR_STORE=upstash  SUMMARIZER=llm
+**2. Set the environment variables.** Two groups, and the distinction matters:
 
-# 3. Verify the same configuration locally first
-python preflight.py --prod
+The five secrets are the same as your `.env`:
 
-# 4. Deploy
-npx vercel --prod
 ```
+TAVILY_API_KEY  GEMINI_API_KEY  GROQ_API_KEY
+UPSTASH_VECTOR_REST_URL  UPSTASH_VECTOR_REST_TOKEN
+```
+
+The four selectors are **different** from your `.env`, which holds local
+values:
+
+```
+LLM_PROVIDER=chain  EMBED_PROVIDER=gemini
+VECTOR_STORE=upstash  SUMMARIZER=llm
+```
+
+Do not bulk-copy `.env` into your host. Three of those four selectors point at
+the local stack there, which cannot run on serverless -- and the resulting
+failure looks like a missing dependency rather than a configuration mistake.
+
+**3. Check the same configuration locally, then deploy:**
+
+```bash
+python preflight.py --prod
+npx vercel --prod          # env changes need a redeploy to take effect
+```
+
+**4. Confirm it took.** `GET /healthz` reports whether each backend can
+actually run, not just what it is set to:
+
+```json
+{"ok": true, "problems": [], "vector_store": "upstash",
+ "embed_provider": "gemini", "cache_available": true}
+```
+
+A non-empty `problems` array names the variable to fix.
 
 Vercel detects Flask from the top-level `app` in `app.py`; no handler wrapper
 or `api/` directory is needed. `vercel.json` sets a 120 s ceiling and excludes
