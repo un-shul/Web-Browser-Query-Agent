@@ -62,6 +62,11 @@ def search_progress():
         try:
             for event in pipeline.process_query(query, force_refresh=force):
                 yield _sse(event.to_dict())
+        except cache.CacheUnavailable as exc:
+            # A configuration problem, not a bug. Pass the guidance through
+            # rather than burying it under "Unexpected error".
+            app.logger.error("cache backend unavailable: %s", exc)
+            yield _sse({"stage": "error", "message": str(exc), "progress": 0})
         except Exception as exc:  # never leave the client hanging
             app.logger.exception("pipeline failed")
             yield _sse({"stage": "error", "message": f"Unexpected error: {exc}", "progress": 0})
@@ -149,12 +154,35 @@ def cache_clear():
 
 @app.route("/healthz")
 def healthz():
-    """Which backends are actually wired up."""
+    """Which backends are wired up, and whether each can actually run.
+
+    Reports reachability rather than just configuration, so a deployment whose
+    environment variables were never set is diagnosable from one request
+    instead of from a failed query.
+    """
     import agent
     import embeddings
 
+    problems = []
+    if not config.TAVILY_API_KEY:
+        problems.append("TAVILY_API_KEY is not set; web search cannot work")
+
+    cache_ok = True
+    try:
+        cache.get_cache()
+    except Exception as exc:
+        cache_ok = False
+        problems.append(str(exc).splitlines()[0])
+
+    if not embeddings.is_available():
+        problems.append(
+            f"EMBED_PROVIDER={config.EMBED_PROVIDER} is not usable here"
+        )
+
     return jsonify({
-        "ok": True,
+        "ok": not problems,
+        "problems": problems,
+        "cache_available": cache_ok,
         "search_configured": bool(config.TAVILY_API_KEY),
         "llm_provider": config.LLM_PROVIDER,
         "embed_provider": config.EMBED_PROVIDER,

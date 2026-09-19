@@ -102,3 +102,29 @@ def test_no_production_module_imports_a_local_only_package_at_module_level(packa
         f"blocking {package!r} alone breaks the production bundle:\n"
         + result.stdout + result.stderr
     )
+
+
+def test_chroma_backend_reports_the_fix_when_unavailable():
+    """The default backend cannot work on serverless. Left alone it surfaces as
+    a bare "No module named 'chromadb'" mid-query, which names neither the
+    cause nor the fix."""
+    script = (
+        "import builtins\n"
+        "real = builtins.__import__\n"
+        "def g(n, *a, **k):\n"
+        "    if n.split('.')[0] == 'chromadb':\n"
+        "        raise ModuleNotFoundError(\"No module named 'chromadb'\")\n"
+        "    return real(n, *a, **k)\n"
+        "builtins.__import__ = g\n"
+        "import cache_chromadb\n"
+        "try:\n"
+        "    cache_chromadb.get_cache()\n"
+        "except cache_chromadb.CacheUnavailable as e:\n"
+        "    print(str(e))\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "VECTOR_STORE=upstash" in out
+    assert "requirements-local.txt" in out

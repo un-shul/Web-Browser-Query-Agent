@@ -51,6 +51,10 @@ log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 
+
+class CacheUnavailable(RuntimeError):
+    """The configured cache backend cannot be used, with a reason worth reading."""
+
 # Entries written before schema 2 have no timestamp, so their real age is
 # unknowable. They share one stable pseudo-birthday recorded on first boot
 # after the upgrade, and stop being served once the grace window passes --
@@ -170,7 +174,21 @@ def _decode_urls(raw: Any) -> List[Any]:
 
 class ChromaDBCache:
     def __init__(self, collection_name=None, db_path=None):
-        import chromadb  # local: see the note at the top of this module
+        try:
+            import chromadb  # local: see the note at the top of this module
+        except ImportError as exc:
+            # The default backend cannot work on serverless: no chromadb in the
+            # bundle and no writable disk. Left to surface on its own this
+            # arrives as a bare "No module named 'chromadb'" mid-query, which
+            # says nothing about the actual mistake.
+            raise CacheUnavailable(
+                "VECTOR_STORE=chroma, but chromadb is not installed.\n"
+                "  Deployed?  set VECTOR_STORE=upstash (plus EMBED_PROVIDER=gemini "
+                "and SUMMARIZER=llm) in your host's environment variables, then "
+                "redeploy -- the local model stack does not fit in a serverless "
+                "bundle.\n"
+                "  Local?     pip install -r requirements-local.txt"
+            ) from exc
 
         collection_name = collection_name or config.CHROMA_COLLECTION
         db_path = db_path or config.CHROMA_PATH
