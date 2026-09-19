@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import agent
 import cache_chromadb as cache
@@ -210,7 +210,7 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
     yield ProgressEvent("summarizing", "Summarising...", 80)
     combined = "\n\n".join(p.text[:5000] for p in pages)
     try:
-        summary = _summarize(pages, combined, query)
+        summary, answered = _summarize(pages, combined, query)
     except Exception as exc:
         log.exception("summarisation failed")
         yield ProgressEvent("error", f"Summarisation failed: {exc}", 0)
@@ -220,26 +220,36 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
         return
 
     # --- cache write ---
-    yield ProgressEvent("caching", "Saving...", 95)
-    entry_id = cache.add_to_cache(
-        query, summary,
-        volatility=verdict.volatility,
-        ttl_seconds=verdict.ttl_seconds,
-        source_urls=[{'url': p.url, 'title': p.title} for p in pages],
-        router_source=verdict.source,
-        embedding=embedding,
-    )
+    # A "the pages did not answer this" response describes a failed fetch, not
+    # the world. Caching it would serve that failure to every paraphrase of
+    # the question for the entry's whole TTL -- 30 days in practice -- when a
+    # retry might well pick different sources and succeed.
+    entry_id = None
+    if answered:
+        yield ProgressEvent("caching", "Saving...", 95)
+        entry_id = cache.add_to_cache(
+            query, summary,
+            volatility=verdict.volatility,
+            ttl_seconds=verdict.ttl_seconds,
+            source_urls=[{'url': p.url, 'title': p.title} for p in pages],
+            router_source=verdict.source,
+            embedding=embedding,
+        )
+    else:
+        yield ProgressEvent("caching", "Not cached: the pages did not answer this", 95)
 
     yield ProgressEvent(
         "complete", "Done", 100,
         {"summary": summary, "is_cached": False, "sources": sources,
          "pages_scraped": len(pages), "total_content_length": len(combined),
-         "verdict": asdict(verdict), "cached_as": entry_id,
-         "cache": dict(cache_trail, stored=entry_id is not None)},
+         "verdict": asdict(verdict), "cached_as": entry_id, "answered": answered,
+         "cache": dict(cache_trail, stored=entry_id is not None,
+                       not_cached_reason="" if answered
+                       else "the pages did not answer the question")},
     )
 
 
-def _summarize(pages, combined: str, query: str) -> Optional[str]:
+def _summarize(pages, combined: str, query: str) -> Tuple[Optional[str], bool]:
     """Summarise with the configured backend, falling back to the other.
 
     SUMMARIZER=llm is required on serverless, where distilbart plus torch is
@@ -250,27 +260,30 @@ def _summarize(pages, combined: str, query: str) -> Optional[str]:
     if config.SUMMARIZER == "llm":
         import summarize_llm
 
-        answer = summarize_llm.summarize(pages, query)
-        if answer:
-            return answer
+        result = summarize_llm.summarize(pages, query)
+        if result:
+            return result.text, result.confident
         log.info("llm summariser unavailable; trying the local model")
         try:
             from summarizer import summarize_text
 
-            return summarize_text(combined, query)
+            # The local model has no notion of whether it answered the
+            # question, so its output is treated as cacheable.
+            return summarize_text(combined, query), True
         except ImportError:
             log.warning("no local summariser installed either")
-            return None
+            return None, False
 
     try:
         from summarizer import summarize_text
 
-        return summarize_text(combined, query)
+        return summarize_text(combined, query), True
     except ImportError:
         log.info("local summariser not installed; trying the llm")
         import summarize_llm
 
-        return summarize_llm.summarize(pages, query)
+        result = summarize_llm.summarize(pages, query)
+        return (result.text, result.confident) if result else (None, False)
 
 
 def _human(seconds: int) -> str:

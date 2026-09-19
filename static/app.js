@@ -178,6 +178,10 @@
       out.push('<span class="badge"><span aria-hidden="true">↻</span>fresh answer</span>');
     }
 
+    if (data.answered === false) {
+      out.push('<span class="badge warning"><span aria-hidden="true">!</span>' +
+               "incomplete — not cached</span>");
+    }
     if (v.degraded) {
       out.push('<span class="badge warning"><span aria-hidden="true">!</span>' +
                "no LLM — deterministic fallback</span>");
@@ -248,11 +252,18 @@
     );
 
     if (!data.is_cached && data.pages_scraped) {
+      var note = "";
+      if (data.answered === false) {
+        note = " The pages did not actually answer the question, so this was " +
+               "<em>not stored</em> — a retry may find better sources.";
+      } else if (cache.stored) {
+        note = " Stored for <em>" + esc(human(v.ttl_seconds)) + "</em>.";
+      }
       steps.push(
         '<div class="trace-step"><div class="label">3 · Fetch</div>' +
         '<div class="detail">Read <em>' + data.pages_scraped +
         "</em> pages, <em>" + (data.total_content_length || 0).toLocaleString() +
-        "</em> characters, then summarised against the query.</div></div>"
+        "</em> characters, then summarised against the query." + note + "</div></div>"
       );
     }
 

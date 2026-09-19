@@ -32,7 +32,7 @@ def client(cache, monkeypatch):
         ],
     )
     monkeypatch.setattr(pipeline, "_summarize",
-                        lambda pages, combined, query: f"Summary for {query}.")
+                        lambda pages, combined, query: (f"Summary for {query}.", True))
     app_module.app.config["TESTING"] = True
     return app_module.app.test_client()
 

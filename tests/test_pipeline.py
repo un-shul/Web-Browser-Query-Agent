@@ -36,7 +36,7 @@ def fake_web(monkeypatch):
 
     def fake_summarize(pages, combined, query):
         calls["summarize"] += 1
-        return f"Summary for {query}."
+        return f"Summary for {query}.", True
 
     monkeypatch.setattr(pipeline, "search", fake_search)
     monkeypatch.setattr(pipeline, "fetch_contents", fake_fetch)
@@ -233,7 +233,7 @@ def test_summariser_failure_surfaces_as_an_error(cache, fake_web, monkeypatch):
 def test_empty_summary_surfaces_as_an_error(cache, fake_web, monkeypatch):
     """Both summariser backends returning nothing must not yield a blank
     answer card."""
-    monkeypatch.setattr(pipeline, "_summarize", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "_summarize", lambda *a, **k: (None, False))
     assert final("what is photosynthesis").stage == "error"
 
 
@@ -274,3 +274,41 @@ def test_candidate_scores_are_exposed(cache, fake_web):
 ])
 def test_human_readable_durations(seconds, expected):
     assert pipeline._human(seconds) == expected
+
+
+def test_an_unanswered_query_is_not_cached(cache, fake_web, monkeypatch):
+    """A "the pages did not answer this" response describes a failed fetch, not
+    the world. Caching it would serve that failure to every paraphrase of the
+    question for the entry's full TTL -- 30 days in practice -- when a retry
+    might pick different sources and succeed."""
+    monkeypatch.setattr(
+        pipeline, "_summarize",
+        lambda pages, combined, query: ("The extracts do not answer this.", False),
+    )
+    result = final("what is photosynthesis")
+    assert result.stage == "complete"
+    assert result.data["answered"] is False
+    assert result.data["cached_as"] is None
+    assert cache.get_cache_stats()["total_queries"] == 0
+
+
+def test_a_confident_answer_is_cached(cache, fake_web):
+    result = final("what is photosynthesis")
+    assert result.data["answered"] is True
+    assert result.data["cached_as"]
+    assert cache.get_cache_stats()["total_queries"] == 1
+
+
+def test_the_reason_for_not_caching_is_reported(cache, fake_web, monkeypatch):
+    monkeypatch.setattr(pipeline, "_summarize",
+                        lambda *a, **k: ("No answer here.", False))
+    trail = final("what is photosynthesis").data["cache"]
+    assert trail["not_cached_reason"]
+    assert trail["stored"] is False
+
+
+def test_an_unanswered_query_still_returns_its_answer(cache, fake_web, monkeypatch):
+    """Not caching it must not mean withholding it -- the user asked."""
+    monkeypatch.setattr(pipeline, "_summarize",
+                        lambda *a, **k: ("The extracts do not cover this.", False))
+    assert "do not cover" in final("what is photosynthesis").data["summary"]

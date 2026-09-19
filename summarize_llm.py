@@ -11,12 +11,22 @@ sentences reach the model. Here the query is simply part of the prompt.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 import config
 from llm_gateway.providers import call_json
 
 log = logging.getLogger(__name__)
+
+@dataclass
+class Summary:
+    text: str
+    # False when the model says the extracts do not answer the question. The
+    # caller must not cache these: the answer is a statement about a failed
+    # fetch, not about the world, and a retry deserves fresh sources.
+    confident: bool = True
+
 
 SUMMARY_SCHEMA = {
     "type": "object",
@@ -53,7 +63,7 @@ def summarize(
     pages: Sequence,
     query: str,
     max_chars_per_page: int = MAX_CHARS_PER_PAGE,
-) -> Optional[str]:
+) -> Optional[Summary]:
     """Answer `query` from `pages`.
 
     Returns None when no provider is reachable, so the caller can fall back to
@@ -91,13 +101,15 @@ def summarize(
     answer = str(result.get("answer") or "").strip()
     if not answer:
         return None
-    if result.get("confident") is False:
-        log.info("llm summariser reported low confidence for %r", query[:60])
-    return answer
+    confident = result.get("confident") is not False
+    if not confident:
+        log.info("extracts did not answer %r; not cacheable", query[:60])
+    return Summary(answer, confident)
 
 
 def summarize_text(text: str, query: Optional[str] = None, **kwargs) -> Optional[str]:
     """Signature-compatible shim for the local summariser's entry point."""
     class _Page:
         def __init__(self, body): self.text = body; self.title = ""; self.url = ""
-    return summarize([_Page(text)], query or "")
+    result = summarize([_Page(text)], query or "")
+    return result.text if result else None

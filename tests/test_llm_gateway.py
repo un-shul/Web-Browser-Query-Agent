@@ -252,3 +252,43 @@ def test_cassette_miss_does_not_reach_the_network():
     result, meta = P.call_json("sys", "usr", SCHEMA, purpose="router")
     assert result is None and meta.degraded
     assert "cassette miss" in meta.error
+
+
+# --- summariser confidence ---------------------------------------------------
+
+
+def test_summariser_reports_low_confidence():
+    import summarize_llm
+
+    key = P.FakeProvider.key("summarize", summarize_llm.SYSTEM, "x")
+    fake = P.FakeProvider({})
+    fake.complete_json = lambda **kw: {
+        "answer": "The extracts do not answer the question.", "confident": False}
+    P.set_chain([fake])
+
+    class Page:
+        text = "Some body text. " * 40
+        title = "T"
+        url = "https://example.test"
+
+    result = summarize_llm.summarize([Page()], "what is photosynthesis")
+    assert result is not None
+    assert result.confident is False
+    assert "do not answer" in result.text
+
+
+def test_summariser_defaults_to_confident_when_the_flag_is_absent():
+    """A model that omits the field should not have its answer discarded."""
+    import summarize_llm
+
+    fake = P.FakeProvider({})
+    fake.complete_json = lambda **kw: {"answer": "A real answer."}
+    P.set_chain([fake])
+
+    class Page:
+        text = "Body. " * 40
+        title = "T"
+        url = "https://example.test"
+
+    result = summarize_llm.summarize([Page()], "q")
+    assert result.confident is True
