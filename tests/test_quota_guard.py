@@ -7,10 +7,10 @@ than silently exhausting a daily quota in production.
 
 import pytest
 
-import config
-import volatility_policy as vp
-from llm_gateway import providers as P
-from llm_gateway import reranker, router
+from queryagent import config
+from queryagent import volatility as vp
+from queryagent.llm import providers as P
+from queryagent.llm import reranker, router
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def test_a_hard_conflict_costs_nothing(cache, fake_llm):
 def test_realtime_queries_never_reach_the_reranker(cache, fake_llm):
     """A realtime query skips the semantic lookup, so no verification is
     needed and no call is spent."""
-    import pipeline
+    from queryagent import pipeline
     cache.add_to_cache("live cricket score", "Old score.", volatility=vp.REALTIME)
     verdict = pipeline.classify("live cricket score india vs australia")
     pipeline.lookup_cache("live cricket score india vs australia", verdict)
@@ -157,7 +157,7 @@ def test_worst_case_is_two_calls(cache, fake_llm, monkeypatch):
     Two is the ceiling. Against Groq's ~14,400 requests/day that is still
     7,000+ queries, so the budget is not the binding constraint.
     """
-    import pipeline
+    from queryagent import pipeline
     monkeypatch.setattr(config, "AUTO_ACCEPT_SIM", 0.999)
     cache.add_to_cache("some earlier related question", "Earlier answer.",
                        volatility=vp.SLOW)
@@ -168,6 +168,6 @@ def test_worst_case_is_two_calls(cache, fake_llm, monkeypatch):
 
 
 def test_junk_never_reaches_the_llm_even_via_the_pipeline(cache, fake_llm):
-    import pipeline
+    from queryagent import pipeline
     list(pipeline.process_query("!!!!!"))
     assert fake_llm.call_count == 0

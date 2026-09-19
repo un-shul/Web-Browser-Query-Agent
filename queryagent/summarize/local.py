@@ -19,7 +19,7 @@ import threading
 import warnings
 from typing import Iterable, Iterator, List, Optional, Set
 
-import config
+from queryagent import config
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")

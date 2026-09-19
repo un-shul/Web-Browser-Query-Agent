@@ -5,7 +5,7 @@ augmented_query_dataset.csv and writes three artifacts:
 
   classifier.json  -- plain coefficients. Small, committed to the repo, and
                       loadable with no sklearn and no pickle. This is what
-                      agent.py prefers at runtime.
+                      classifier.py prefers at runtime.
   classifier.pkl   -- the sklearn estimator, for anyone who wants it.
   embedding_model/ -- a local copy of the sentence transformer.
 
@@ -15,17 +15,30 @@ model is measured rather than assumed.
 
 The artifact is named for the embedding model's dimensionality, because a
 classifier trained on 384-dim MiniLM vectors is meaningless applied to 768-dim
-Gemini ones. agent.py selects by dimension at load time, so both can coexist
+Gemini ones. classifier.py selects by dimension at load time, so both can coexist
 and the gate keeps working whichever backend is active.
 
     python train_classifier.py                # local MiniLM, 384 dims
     python train_classifier.py --provider gemini   # hosted, 768 dims
 """
 
+
+
 from __future__ import annotations
+
+import os
+import sys
+
+# Running `python scripts/<name>.py` puts scripts/ on sys.path, not the
+# repository root, so the queryagent package would not be importable. Add the
+# root explicitly rather than requiring `python -m scripts.<name>`, which is
+# not what anyone types.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 import argparse
 import json
+import os
 import pickle
 from datetime import datetime, timezone
 
@@ -33,12 +46,14 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
-import config
+from queryagent import config
 
-DATASET = "augmented_query_dataset.csv"
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(_ROOT, "data")
+DATASET = os.path.join(DATA_DIR, "augmented_query_dataset.csv")
 
 
-CACHE_PATH = ".embed_cache.json"
+CACHE_PATH = os.path.join(_ROOT, ".embed_cache.json")
 
 
 def _embed_with_resume(queries, embeddings, batch=100, pause=6.0):
@@ -101,11 +116,10 @@ def main() -> None:
     if set(df["label"].unique()) - {"valid", "invalid"}:
         raise SystemExit(f"unexpected labels in {DATASET}: {df['label'].unique()}")
 
-    import os
     os.environ["EMBED_PROVIDER"] = args.provider
     import importlib
     importlib.reload(config)
-    import embeddings
+    from queryagent import embeddings
     importlib.reload(embeddings)
 
     model = None
@@ -143,16 +157,16 @@ def main() -> None:
         "cv_accuracy": round(cv_accuracy, 4),
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    path = f"classifier-{len(coef)}.json"
+    path = os.path.join(DATA_DIR, f"classifier-{len(coef)}.json")
     with open(path, "w") as fh:
         json.dump(artifact, fh, indent=1)
     print(f"wrote {path} ({len(coef)} coefficients)")
 
     if args.provider == "local":
-        with open("classifier.pkl", "wb") as fh:
+        with open(os.path.join(DATA_DIR, "classifier.pkl"), "wb") as fh:
             pickle.dump(clf, fh)
         print("wrote classifier.pkl")
-        model.save("embedding_model")
+        model.save(os.path.join(_ROOT, "embedding_model"))
         print("wrote embedding_model/")
 
 

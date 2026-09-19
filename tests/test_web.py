@@ -7,9 +7,9 @@ import json
 
 import pytest
 
-import pipeline
-import volatility_policy as vp
-from web_search import PageContent, SearchBundle, SearchResult
+from queryagent import pipeline
+from queryagent import volatility as vp
+from queryagent.search import PageContent, SearchBundle, SearchResult
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def test_nav_marks_the_current_page(client):
 def test_healthz_reports_backends(client):
     body = client.get("/healthz").get_json()
     assert body["ok"] is True
-    for key in ["search_configured", "llm_provider", "vector_store",
+    for key in ["search_configured", "llm_provider", "queryagent.upstash",
                 "classifier_loaded", "embedder_available"]:
         assert key in body
 
@@ -204,9 +204,9 @@ def test_cache_delete_item_needs_an_id(client):
 def test_cache_purge_removes_expired_only(client, cache, monkeypatch):
     cache.add_to_cache("static thing here", "S", volatility=vp.STATIC)
     cache.add_to_cache("live score now", "S", volatility=vp.REALTIME)
-    import cache_chromadb
-    real_now = cache_chromadb._now
-    monkeypatch.setattr(cache_chromadb, "_now", lambda: real_now() + 400)
+    from queryagent import cache as cachemod
+    real_now = cachemod._now
+    monkeypatch.setattr(cachemod, "_now", lambda: real_now() + 400)
     assert client.post("/cache-purge").get_json()["purged"] == 1
 
 

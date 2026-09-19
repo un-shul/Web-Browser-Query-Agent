@@ -38,9 +38,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import config
-import embeddings
-import volatility_policy as vp
+from queryagent import config
+from queryagent import embeddings
+from queryagent import volatility as vp
 
 # chromadb is NOT imported at module level. It is absent from the production
 # bundle -- torch and friends are 1.3GB against a 500MB limit -- and importing
@@ -662,9 +662,9 @@ class UpstashCache(ChromaDBCache):
     """
 
     def __init__(self, store=None):
-        import vector_store
+        from queryagent.cache import upstash
 
-        self.store = store or vector_store.UpstashVectorStore()
+        self.store = store or upstash.UpstashVectorStore()
         self.collection = None  # nothing Chroma-shaped exists here
         self._migration_epoch = None
 

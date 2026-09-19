@@ -5,7 +5,7 @@ import os
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-import pipeline
+from queryagent import pipeline
 
 ICONS = {
     "validating": "🔎", "classified": "🏷️ ", "cache": "💾", "cache_miss": "💾",

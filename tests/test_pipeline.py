@@ -6,9 +6,9 @@ that a realtime query never consults the semantic cache.
 
 import pytest
 
-import pipeline
-import volatility_policy as vp
-from web_search import PageContent, SearchBundle, SearchResult
+from queryagent import pipeline
+from queryagent import volatility as vp
+from queryagent.search import PageContent, SearchBundle, SearchResult
 
 
 @pytest.fixture
@@ -130,9 +130,9 @@ def test_static_query_does_reuse_its_cached_answer(cache, fake_web):
 
 def test_expired_static_entry_triggers_a_fresh_search(cache, fake_web, monkeypatch):
     cache.add_to_cache("what is photosynthesis", "OLD", volatility=vp.STATIC)
-    import cache_chromadb
-    real_now = cache_chromadb._now
-    monkeypatch.setattr(cache_chromadb, "_now", lambda: real_now() + 400 * 86400)
+    from queryagent import cache as cachemod
+    real_now = cachemod._now
+    monkeypatch.setattr(cachemod, "_now", lambda: real_now() + 400 * 86400)
     result = final("what is photosynthesis")
     assert result.data["is_cached"] is False
     assert len(fake_web["search"]) == 1
@@ -198,7 +198,7 @@ def test_answer_is_written_back_to_the_cache(cache, fake_web):
 
 
 def test_search_failure_surfaces_as_an_error(cache, fake_web, monkeypatch):
-    from web_search import SearchError
+    from queryagent.search import SearchError
 
     def boom(*a, **k):
         raise SearchError("no TAVILY_API_KEY set")

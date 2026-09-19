@@ -21,7 +21,7 @@ import os
 import threading
 from typing import List, Optional, Sequence
 
-import config
+from queryagent import config
 
 log = logging.getLogger(__name__)
 

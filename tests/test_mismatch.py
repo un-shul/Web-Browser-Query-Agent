@@ -6,7 +6,7 @@ pin the behaviour those measurements justified.
 
 import pytest
 
-from llm_gateway import mismatch as M
+from queryagent.llm import mismatch as M
 
 
 @pytest.mark.parametrize("a,b", [

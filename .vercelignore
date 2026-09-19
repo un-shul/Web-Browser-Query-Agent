@@ -5,6 +5,8 @@ venv/
 embedding_model/
 chroma_db/
 *.pkl
+scripts/
+data/*.csv
 tests/
 docs/
 *.csv

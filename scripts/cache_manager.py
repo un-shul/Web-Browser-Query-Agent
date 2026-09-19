@@ -1,10 +1,22 @@
+
+import os
+import sys
+
+# Running `python scripts/<name>.py` puts scripts/ on sys.path, not the
+# repository root, so the queryagent package would not be importable. Add the
+# root explicitly rather than requiring `python -m scripts.<name>`, which is
+# not what anyone types.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+
 #!/usr/bin/env python3
 """
 Cache management tool for ChromaDB cache
 """
 
 import argparse
-from cache_chromadb import (
+from queryagent.cache import (
     view_all_cache, search_cache, delete_cache_item, 
     delete_cache_by_query, clear_cache, get_cache_stats
 )

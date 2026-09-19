@@ -18,10 +18,10 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 import chromadb
 import pytest
 
-import cache_chromadb
-import config
-import embeddings
-from llm_gateway import providers, router
+from queryagent import cache as cachemod
+from queryagent import config
+from queryagent import embeddings
+from queryagent.llm import providers, router
 
 STUB_DIM = 32
 
@@ -72,7 +72,7 @@ def cache(monkeypatch):
     """A fresh in-memory cache per test."""
     client = chromadb.EphemeralClient()
 
-    class MemoryCache(cache_chromadb.ChromaDBCache):
+    class MemoryCache(cachemod.ChromaDBCache):
         def __init__(self):
             self.client = client
             self.collection = client.get_or_create_collection(
@@ -81,8 +81,8 @@ def cache(monkeypatch):
             self._migration_epoch = None
 
     instance = MemoryCache()
-    monkeypatch.setattr(cache_chromadb, "_cache_db", instance)
-    monkeypatch.setattr(cache_chromadb, "get_cache", lambda: instance)
+    monkeypatch.setattr(cachemod, "_cache_db", instance)
+    monkeypatch.setattr(cachemod, "get_cache", lambda: instance)
     yield instance
     try:
         client.delete_collection("test_cache")

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-import volatility_policy as vp
+from queryagent import volatility as vp
 
 REALTIME_QUERIES = [
     "live cricket score india vs australia",

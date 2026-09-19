@@ -14,9 +14,9 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 from flask import Flask, Response, jsonify, render_template, request
 
-import cache_chromadb as cache
-import config
-import pipeline
+from queryagent import cache as cache
+from queryagent import config
+from queryagent import pipeline
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -160,8 +160,8 @@ def healthz():
     environment variables were never set is diagnosable from one request
     instead of from a failed query.
     """
-    import agent
-    import embeddings
+    from queryagent import classifier
+    from queryagent import embeddings
 
     problems = []
     if not config.TAVILY_API_KEY:
@@ -186,9 +186,9 @@ def healthz():
         "search_configured": bool(config.TAVILY_API_KEY),
         "llm_provider": config.LLM_PROVIDER,
         "embed_provider": config.EMBED_PROVIDER,
-        "vector_store": config.VECTOR_STORE,
-        "summarizer": config.SUMMARIZER,
-        "classifier_loaded": agent.is_available(),
+        "queryagent.upstash": config.VECTOR_STORE,
+        "queryagent.local": config.SUMMARIZER,
+        "classifier_loaded": classifier.is_available(),
         "embedder_available": embeddings.is_available(),
     })
 

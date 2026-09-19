@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
-import config
+from queryagent import config
 
 from . import prompts
 from .mismatch import find_conflict, is_hard_conflict, safe_to_auto_accept
@@ -74,7 +74,7 @@ def verify(
 ) -> RerankResult:
     """Decide which candidate, if any, may answer `query`.
 
-    `candidates` are cache_chromadb.Candidate objects, already TTL-filtered
+    `candidates` are cache.Candidate objects, already TTL-filtered
     and sorted by descending similarity.
     """
     described = _describe(candidates)

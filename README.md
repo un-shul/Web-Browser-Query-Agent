@@ -80,6 +80,29 @@ full decision flow.
 app still runs on the classifier, the regex heuristics and a fixed similarity
 threshold — which is exactly how it behaved before these layers existed.
 
+## Layout
+
+```
+app.py                  Flask app -- Vercel loads the top-level `app` from here
+main.py                 CLI
+
+queryagent/
+  config.py             every environment variable, read in one place
+  pipeline.py           the one query flow, shared by both entry points
+  classifier.py         logistic-regression validity gate
+  embeddings.py         local MiniLM or hosted Gemini, behind one interface
+  volatility.py         staleness classes and the TTL policy (pure functions)
+  search.py             Tavily search plus the scrape fallback chain
+  cache/                semantic cache: __init__.py is ChromaDB, upstash.py is hosted
+  summarize/            local.py is distilbart, hosted.py is an LLM
+  llm/                  provider chain, router, verifier, mismatch guard
+
+scripts/                train_classifier.py, preflight.py, cache_manager.py
+data/                   datasets and the committed classifier artifact
+templates/  static/     server-rendered UI
+tests/                  383 tests, no network
+```
+
 ## Setup
 
 Requires Python 3.12.
@@ -99,7 +122,7 @@ Vercel's Python bundle limit is 500 MB and torch alone is 547 MB.
 Train the validity classifier (downloads ~90MB on first run):
 
 ```bash
-python train_classifier.py
+python scripts/train_classifier.py
 ```
 
 This writes `classifier.json` (the artifact the app actually loads),
@@ -109,9 +132,9 @@ and it is committed — so you can skip this step unless you want to retrain.
 Run it:
 
 ```bash
-python main.py       # CLI
-python app.py        # web UI at http://127.0.0.1:5000
-python preflight.py  # check every backend with a live call
+python main.py               # CLI
+python app.py                # web UI at http://127.0.0.1:5000
+python scripts/preflight.py  # check every backend with a live call
 ```
 
 On macOS, Control Center's AirPlay Receiver also listens on port 5000. Flask
@@ -119,7 +142,7 @@ still binds to `127.0.0.1:5000` and wins, but if the page will not load, turn
 AirPlay Receiver off in System Settings → General → AirDrop & Handoff, or run
 `python app.py` behind `FLASK_RUN_PORT`.
 
-`preflight.py` is worth running before any deploy. Every check makes a real
+`scripts/preflight.py` is worth running before any deploy. Every check makes a real
 request, because the failures that matter are the ones a config file cannot
 show: a retired model id, an index created with the wrong dimension, a key
 that was never activated. Two of the three model ids this project started with
@@ -204,7 +227,7 @@ failure looks like a missing dependency rather than a configuration mistake.
 **3. Check the same configuration locally, then deploy:**
 
 ```bash
-python preflight.py --prod
+python scripts/preflight.py --prod
 npx vercel --prod          # env changes need a redeploy to take effect
 ```
 

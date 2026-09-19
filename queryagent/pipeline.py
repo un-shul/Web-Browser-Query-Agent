@@ -15,13 +15,13 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-import agent
-import cache_chromadb as cache
-import config
-import embeddings
-import volatility_policy as vp
-from llm_gateway import reranker, router
-from web_search import SearchError, fetch_contents, search
+from queryagent import classifier
+from queryagent import cache as cache
+from queryagent import config
+from queryagent import embeddings
+from queryagent import volatility as vp
+from queryagent.llm import reranker, router
+from queryagent.search import SearchError, fetch_contents, search
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class ProgressEvent:
 def classify(query: str, embedding=None, allow_llm: bool = True) -> QueryVerdict:
     """Decide validity and volatility.
 
-    Delegates to llm_gateway.router, which spends at most one LLM call and
+    Delegates to llm.router, which spends at most one LLM call and
     skips it entirely for junk, memoised repeats, and anything the regex
     heuristics can settle.
     """
@@ -258,14 +258,14 @@ def _summarize(pages, combined: str, query: str) -> Tuple[Optional[str], bool]:
     the request -- when the local model is actually installed.
     """
     if config.SUMMARIZER == "llm":
-        import summarize_llm
+        from queryagent.summarize import hosted
 
-        result = summarize_llm.summarize(pages, query)
+        result = hosted.summarize(pages, query)
         if result:
             return result.text, result.confident
         log.info("llm summariser unavailable; trying the local model")
         try:
-            from summarizer import summarize_text
+            from queryagent.summarize.local import summarize_text
 
             # The local model has no notion of whether it answered the
             # question, so its output is treated as cacheable.
@@ -275,14 +275,14 @@ def _summarize(pages, combined: str, query: str) -> Tuple[Optional[str], bool]:
             return None, False
 
     try:
-        from summarizer import summarize_text
+        from queryagent.summarize.local import summarize_text
 
         return summarize_text(combined, query), True
     except ImportError:
         log.info("local summariser not installed; trying the llm")
-        import summarize_llm
+        from queryagent.summarize import hosted
 
-        result = summarize_llm.summarize(pages, query)
+        result = hosted.summarize(pages, query)
         return (result.text, result.confident) if result else (None, False)
 
 

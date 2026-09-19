@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import List
 
 ROUTER_SYSTEM = """\
-You classify web search queries for a caching search agent.
+You classify web search queries for a caching search classifier.
 
 Decide two things.
 

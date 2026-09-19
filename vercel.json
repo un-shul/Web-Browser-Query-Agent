@@ -3,7 +3,7 @@
   "functions": {
     "app.py": {
       "maxDuration": 120,
-      "excludeFiles": "{tests/**,docs/**,*.csv,*.md,embedding_model/**,chroma_db/**,*.pkl,requirements-local.txt,requirements-dev.txt,.venv/**,*.png}"
+      "excludeFiles": "{tests/**,docs/**,scripts/**,data/*.csv,*.md,embedding_model/**,chroma_db/**,*.pkl,requirements-local.txt,requirements-dev.txt,.venv/**,*.png}"
     }
   }
 }

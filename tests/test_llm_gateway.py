@@ -10,11 +10,11 @@ import json
 import pytest
 import responses
 
-import config
-from llm_gateway import providers as P
-from llm_gateway import reranker, router
-from llm_gateway.budget import Budget
-from llm_gateway.schemas import RERANK_SCHEMA, ROUTER_SCHEMA
+from queryagent import config
+from queryagent.llm import providers as P
+from queryagent.llm import reranker, router
+from queryagent.llm.budget import Budget
+from queryagent.llm.schemas import RERANK_SCHEMA, ROUTER_SCHEMA
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
@@ -258,9 +258,9 @@ def test_cassette_miss_does_not_reach_the_network():
 
 
 def test_summariser_reports_low_confidence():
-    import summarize_llm
+    from queryagent.summarize import hosted
 
-    key = P.FakeProvider.key("summarize", summarize_llm.SYSTEM, "x")
+    key = P.FakeProvider.key("summarize", hosted.SYSTEM, "x")
     fake = P.FakeProvider({})
     fake.complete_json = lambda **kw: {
         "answer": "The extracts do not answer the question.", "confident": False}
@@ -271,7 +271,7 @@ def test_summariser_reports_low_confidence():
         title = "T"
         url = "https://example.test"
 
-    result = summarize_llm.summarize([Page()], "what is photosynthesis")
+    result = hosted.summarize([Page()], "what is photosynthesis")
     assert result is not None
     assert result.confident is False
     assert "do not answer" in result.text
@@ -279,7 +279,7 @@ def test_summariser_reports_low_confidence():
 
 def test_summariser_defaults_to_confident_when_the_flag_is_absent():
     """A model that omits the field should not have its answer discarded."""
-    import summarize_llm
+    from queryagent.summarize import hosted
 
     fake = P.FakeProvider({})
     fake.complete_json = lambda **kw: {"answer": "A real answer."}
@@ -290,5 +290,5 @@ def test_summariser_defaults_to_confident_when_the_flag_is_absent():
         title = "T"
         url = "https://example.test"
 
-    result = summarize_llm.summarize([Page()], "q")
+    result = hosted.summarize([Page()], "q")
     assert result.confident is True

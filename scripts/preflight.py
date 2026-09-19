@@ -1,3 +1,5 @@
+
+
 #!/usr/bin/env python3
 """Check a deployment's configuration before pushing it.
 
@@ -10,6 +12,16 @@ dimension, a key that was never activated.
 """
 
 from __future__ import annotations
+
+import os
+import sys
+
+# Running `python scripts/<name>.py` puts scripts/ on sys.path, not the
+# repository root, so the queryagent package would not be importable. Add the
+# root explicitly rather than requiring `python -m scripts.<name>`, which is
+# not what anyone types.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 import argparse
 import os
@@ -34,7 +46,7 @@ def main() -> int:
             "SUMMARIZER": "llm", "LLM_PROVIDER": "chain",
         })
 
-    import config
+    from queryagent import config
 
     failures = 0
     print(f"\nConfiguration ({'production' if args.prod else 'current'})")
@@ -48,16 +60,16 @@ def main() -> int:
         line(FAIL, "TAVILY_API_KEY", "not set; web search cannot work")
         failures += 1
     else:
-        import web_search
+        from queryagent import search
         try:
-            bundle = web_search.search("preflight connectivity check", max_results=1)
+            bundle = search.search("preflight connectivity check", max_results=1)
             line(OK, "tavily", f"{len(bundle.results)} result(s)")
         except Exception as exc:
             line(FAIL, "tavily", str(exc)[:120])
             failures += 1
 
     print("\nInference")
-    import llm_gateway.providers as providers
+    from queryagent.llm import providers
     providers.reset_chain()
     chain = providers.get_chain()
     if not chain:
@@ -78,7 +90,7 @@ def main() -> int:
         providers.set_chain(chain)
 
     print("\nEmbeddings")
-    import embeddings
+    from queryagent import embeddings
     try:
         vector = embeddings.encode_one("preflight")
         expected = embeddings.embedding_dim()
@@ -94,9 +106,9 @@ def main() -> int:
 
     print("\nVector store")
     if config.VECTOR_STORE == "upstash":
-        import vector_store
+        from queryagent.cache import upstash
         try:
-            store = vector_store.UpstashVectorStore()
+            store = upstash.UpstashVectorStore()
             count = store.count()
             line(OK, "upstash", f"reachable, {count} vector(s)")
             if vector:
@@ -112,16 +124,16 @@ def main() -> int:
             failures += 1
     else:
         try:
-            import cache_chromadb
-            line(OK, "chroma", f"{cache_chromadb.get_cache_stats().get('total_queries', 0)} entries")
+            from queryagent import cache
+            line(OK, "chroma", f"{cache.get_cache_stats().get('total_queries', 0)} entries")
         except Exception as exc:
             line(FAIL, "chroma", str(exc)[:120])
             failures += 1
 
     print("\nClassifier")
-    import agent
-    if agent.is_available():
-        _, p = agent.classify_query_with_confidence("what is photosynthesis")
+    from queryagent import classifier
+    if classifier.is_available():
+        _, p = classifier.classify_query_with_confidence("what is photosynthesis")
         if p is None:
             line(WARN, "classifier loaded but unusable",
                  "embedding dimension does not match the trained artifact")

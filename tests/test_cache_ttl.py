@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-import cache_chromadb as cc
-import volatility_policy as vp
+from queryagent import cache as cachemod
+from queryagent import volatility as vp
 
 
 def test_write_then_read_roundtrip(cache):
@@ -118,7 +118,7 @@ def test_migration_epoch_marker_is_never_returned(cache):
     _ = cache.migration_epoch
     fresh, expired = cache.find_similar_candidates("q", k=10, floor=-1.0)
     ids = [c.id for c in fresh + expired]
-    assert cc._MIGRATION_EPOCH_KEY not in ids
+    assert cachemod._MIGRATION_EPOCH_KEY not in ids
 
 
 # --- legacy entries ----------------------------------------------------------
@@ -128,7 +128,7 @@ def _write_legacy(cache, query, summary):
     """Write exactly what the pre-schema-2 code wrote: summary only."""
     cache.collection.add(
         ids=[f"legacy-{query}"],
-        embeddings=[cc.embeddings.encode_one(query)],
+        embeddings=[cachemod.embeddings.encode_one(query)],
         documents=[query],
         metadatas=[{"summary": summary}],
     )
@@ -153,7 +153,7 @@ def test_legacy_entry_expires_after_the_grace_window(cache):
     """Fail-closed: an entry whose real age is unknowable stops being served
     rather than being served forever."""
     _write_legacy(cache, "what is photosynthesis", "Legacy summary.")
-    beyond = cache.migration_epoch + cc.LEGACY_GRACE_SECONDS + 10
+    beyond = cache.migration_epoch + cachemod.LEGACY_GRACE_SECONDS + 10
     fresh, expired = cache.find_similar_candidates(
         "what is photosynthesis", floor=0.9, now=beyond
     )
@@ -171,7 +171,7 @@ def test_backfill_upgrades_a_legacy_entry(cache):
 
     fresh2, expired2 = cache.find_similar_candidates("live cricket score", floor=0.9)
     upgraded = (fresh2 + expired2)[0]
-    assert upgraded.schema_version == cc.SCHEMA_VERSION
+    assert upgraded.schema_version == cachemod.SCHEMA_VERSION
     # Classified by heuristics alone -- backfill must never spend an LLM call.
     assert upgraded.volatility == vp.REALTIME
 
@@ -188,7 +188,7 @@ def test_backfill_is_a_noop_on_current_entries(cache):
 def test_normalize_meta_tolerates_garbage():
     for bad in [None, {}, {"summary": "x"}, {"schema_version": "nonsense"},
                 {"created_at": None, "expires_at": ""}]:
-        meta = cc._normalize_meta(bad, 1_000_000)
+        meta = cachemod._normalize_meta(bad, 1_000_000)
         assert isinstance(meta["created_at"], int)
         assert isinstance(meta["expires_at"], int)
         assert isinstance(meta["volatility"], str)
@@ -199,7 +199,7 @@ def test_normalize_meta_tolerates_garbage():
     (None, []), ("", []), ('{"not":"a list"}', []), (["a"], ["a"]),
 ])
 def test_decode_urls_never_raises(raw, expected):
-    assert cc._decode_urls(raw) == expected
+    assert cachemod._decode_urls(raw) == expected
 
 
 # --- admin -------------------------------------------------------------------
@@ -233,7 +233,7 @@ def test_stats_break_down_by_volatility(cache):
     assert stats["total_queries"] == 2
     assert stats["by_volatility"][vp.STATIC] == 1
     assert stats["by_volatility"][vp.DYNAMIC] == 1
-    assert stats["schema_version"] == cc.SCHEMA_VERSION
+    assert stats["schema_version"] == cachemod.SCHEMA_VERSION
 
 
 def test_stats_count_legacy_entries(cache):
@@ -265,18 +265,18 @@ def test_find_similar_query_will_not_return_an_expired_entry(cache):
     """The no-LLM path must respect TTLs too."""
     cache.add_to_cache("live score", "Stale.", volatility=vp.REALTIME)
     time.sleep(0)
-    import cache_chromadb
-    original = cache_chromadb._now
+    from queryagent import cache as cachemod
+    original = cachemod._now
     try:
-        cache_chromadb._now = lambda: original() + 400
+        cachemod._now = lambda: original() + 400
         assert cache.find_similar_query("live score", threshold=0.9) == (None, None)
     finally:
-        cache_chromadb._now = original
+        cachemod._now = original
 
 
 def test_view_all_cache_exposes_freshness(cache):
     cache.add_to_cache("q", "S", volatility=vp.STATIC, source_urls=["https://x.example"])
-    items = cc.view_all_cache()
+    items = cachemod.view_all_cache()
     assert len(items) == 1
     assert items[0]["volatility"] == vp.STATIC
     assert items[0]["is_expired"] is False
@@ -287,7 +287,7 @@ def test_view_all_cache_survives_legacy_metadata(cache):
     """Regression: view_all_cache read metadata['summary'] directly, which
     raises KeyError on any entry written by a different schema version."""
     _write_legacy(cache, "old query", "Old summary.")
-    items = cc.view_all_cache()
+    items = cachemod.view_all_cache()
     assert len(items) == 1
     assert items[0]["schema_version"] == 1
 
@@ -295,12 +295,12 @@ def test_view_all_cache_survives_legacy_metadata(cache):
 def test_search_cache_filters_by_query_text(cache):
     cache.add_to_cache("photosynthesis basics", "S", volatility=vp.STATIC)
     cache.add_to_cache("cricket score", "S", volatility=vp.STATIC)
-    assert len(cc.search_cache("photosynthesis")) == 1
+    assert len(cachemod.search_cache("photosynthesis")) == 1
 
 
 def test_delete_by_query(cache):
     cache.add_to_cache("photosynthesis basics", "S", volatility=vp.STATIC)
-    assert cc.delete_cache_by_query("photosynthesis") == 1
+    assert cachemod.delete_cache_by_query("photosynthesis") == 1
     assert cache.get_cache_stats()["total_queries"] == 0
 
 

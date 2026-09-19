@@ -33,7 +33,7 @@ from typing import Dict, List, Optional
 import requests
 from bs4 import BeautifulSoup
 
-import config
+from queryagent import config
 
 log = logging.getLogger(__name__)
 

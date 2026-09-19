@@ -6,7 +6,7 @@ split_text has a word-count fallback, so chunking is exercised through that.
 
 import pytest
 
-import summarizer as S
+from queryagent.summarize import local as S
 
 
 # --- clean_text --------------------------------------------------------------

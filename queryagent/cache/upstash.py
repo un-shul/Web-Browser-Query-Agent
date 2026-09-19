@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import config
+from queryagent import config
 
 log = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-import config
+from queryagent import config
 from .budget import get_budget
 
 log = logging.getLogger(__name__)

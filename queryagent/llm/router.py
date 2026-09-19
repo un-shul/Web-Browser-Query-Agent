@@ -22,9 +22,9 @@ import threading
 import time
 from typing import Dict, Optional, Sequence, Tuple
 
-import agent
-import config
-import volatility_policy as vp
+from queryagent import classifier
+from queryagent import config
+from queryagent import volatility as vp
 
 from . import prompts
 from .providers import call_json
@@ -95,8 +95,8 @@ def route(
         return cached
 
     # 3. Classifier gate. Rejects junk before any LLM call. The 0.05 threshold
-    #    rather than the model's own 0.5 boundary -- see agent.is_junk.
-    label, p_valid = agent.classify_query_with_confidence(stripped, embedding)
+    #    rather than the model's own 0.5 boundary -- see classifier.is_junk.
+    label, p_valid = classifier.classify_query_with_confidence(stripped, embedding)
     if p_valid is not None and p_valid < config.LR_REJECT_P:
         return _invalid(
             f"classifier confident this is not a query (p={p_valid:.3f})",

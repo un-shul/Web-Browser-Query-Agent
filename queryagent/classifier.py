@@ -25,12 +25,17 @@ import os
 import threading
 from typing import List, Optional, Sequence, Tuple
 
-import config
-import embeddings
+from queryagent import config
+from queryagent import embeddings
 
 log = logging.getLogger(__name__)
 
-PICKLE_ARTIFACT = "classifier.pkl"
+# Resolved relative to the repository, not the working directory: a script
+# run from another directory would otherwise silently find no classifier and
+# disable the validity gate.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(_ROOT, "data")
+PICKLE_ARTIFACT = os.path.join(DATA_DIR, "classifier.pkl")
 
 
 def _json_candidates() -> List[str]:
@@ -43,19 +48,22 @@ def _json_candidates() -> List[str]:
     """
     names = []
     try:
-        import embeddings
+        from queryagent import embeddings
 
         dim = embeddings.embedding_dim()
         if dim:
             names.append(f"classifier-{dim}.json")
     except Exception:
         pass
-    names += ["classifier.json"]
-    names += sorted(
-        n for n in os.listdir(".")
-        if n.startswith("classifier-") and n.endswith(".json") and n not in names
-    ) if os.path.isdir(".") else []
-    return names
+    names.append("classifier.json")
+    try:
+        names += sorted(
+            n for n in os.listdir(DATA_DIR)
+            if n.startswith("classifier-") and n.endswith(".json") and n not in names
+        )
+    except OSError:
+        pass
+    return [os.path.join(DATA_DIR, n) for n in names]
 
 _state: Optional[dict] = None
 _load_attempted = False
@@ -165,7 +173,7 @@ def classify_query_with_confidence(
                     log.warning(
                         "embedding is %d-dim but the classifier expects %d; "
                         "validity gate disabled. Train a matching artifact with "
-                        "`python train_classifier.py --provider %s`.",
+                        "`python scripts/train_classifier.py --provider %s`.",
                         len(vec), len(coef),
                         "gemini" if len(vec) == 768 else "local",
                     )

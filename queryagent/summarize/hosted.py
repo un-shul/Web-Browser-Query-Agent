@@ -4,7 +4,7 @@ Used when SUMMARIZER=llm, which is the only workable option on serverless:
 distilbart plus torch is ~1.7GB against Vercel's 500MB Python bundle limit.
 
 It also produces a better answer than the local path can. distilbart cannot be
-instructed, so summarizer.py has to approximate query focus by selecting which
+instructed, so local.py has to approximate query focus by selecting which
 sentences reach the model. Here the query is simply part of the prompt.
 """
 
@@ -14,8 +14,8 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
-import config
-from llm_gateway.providers import call_json
+from queryagent import config
+from queryagent.llm.providers import call_json
 
 log = logging.getLogger(__name__)
 

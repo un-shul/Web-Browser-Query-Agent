@@ -10,9 +10,9 @@ import math
 
 import pytest
 
-import cache_chromadb as cc
-import config
-import volatility_policy as vp
+from queryagent import cache as cachemod
+from queryagent import config
+from queryagent import volatility as vp
 
 
 class FakeUpstash:
@@ -82,9 +82,9 @@ class FakeUpstash:
 @pytest.fixture
 def upstash(monkeypatch):
     fake = FakeUpstash()
-    instance = cc.UpstashCache(store=fake)
-    monkeypatch.setattr(cc, "_cache_db", instance)
-    monkeypatch.setattr(cc, "get_cache", lambda: instance)
+    instance = cachemod.UpstashCache(store=fake)
+    monkeypatch.setattr(cachemod, "_cache_db", instance)
+    monkeypatch.setattr(cachemod, "get_cache", lambda: instance)
     instance.fake = fake
     return instance
 
@@ -182,7 +182,7 @@ def test_touch_makes_no_api_calls(upstash):
 
 def test_view_all_cache_works_on_this_backend(upstash):
     upstash.add_to_cache("q here now", "S", volatility=vp.STATIC)
-    items = cc.view_all_cache()
+    items = cachemod.view_all_cache()
     assert len(items) == 1
     assert items[0]["query"] == "q here now"
     assert items[0]["is_expired"] is False

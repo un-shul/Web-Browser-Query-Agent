@@ -2,7 +2,7 @@
 
 This exists because it was missed. The original check imported the leaf
 modules individually and declared the production bundle verified -- but never
-imported `app`, whose import chain reaches chromadb through cache_chromadb.
+imported `app`, whose import chain reaches chromadb through cache.
 The deployed function crashed on every request with
 FUNCTION_INVOCATION_FAILED.
 
@@ -25,10 +25,24 @@ LOCAL_ONLY = [
 
 # Everything a deployed request can reach. app is the entry point Vercel loads.
 PRODUCTION_MODULES = [
-    "config", "embeddings", "agent", "volatility_policy", "web_search",
-    "vector_store", "summarize_llm", "cache_chromadb", "pipeline", "app",
-    "llm_gateway", "llm_gateway.providers", "llm_gateway.router",
-    "llm_gateway.reranker", "llm_gateway.mismatch", "llm_gateway.budget",
+    "queryagent",
+    "queryagent.config",
+    "queryagent.embeddings",
+    "queryagent.classifier",
+    "queryagent.volatility",
+    "queryagent.search",
+    "queryagent.cache",
+    "queryagent.cache.upstash",
+    "queryagent.summarize",
+    "queryagent.summarize.hosted",
+    "queryagent.pipeline",
+    "queryagent.llm",
+    "queryagent.llm.providers",
+    "queryagent.llm.router",
+    "queryagent.llm.reranker",
+    "queryagent.llm.mismatch",
+    "queryagent.llm.budget",
+    "app",  # the entry point Vercel loads
 ]
 
 SCRIPT = textwrap.dedent("""
@@ -116,10 +130,10 @@ def test_chroma_backend_reports_the_fix_when_unavailable():
         "        raise ModuleNotFoundError(\"No module named 'chromadb'\")\n"
         "    return real(n, *a, **k)\n"
         "builtins.__import__ = g\n"
-        "import cache_chromadb\n"
+        "from queryagent import cache\n"
         "try:\n"
-        "    cache_chromadb.get_cache()\n"
-        "except cache_chromadb.CacheUnavailable as e:\n"
+        "    cache.get_cache()\n"
+        "except cache.CacheUnavailable as e:\n"
         "    print(str(e))\n"
     )
     result = subprocess.run([sys.executable, "-c", script],
