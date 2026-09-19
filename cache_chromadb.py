@@ -38,11 +38,14 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import chromadb
-
 import config
 import embeddings
 import volatility_policy as vp
+
+# chromadb is NOT imported at module level. It is absent from the production
+# bundle -- torch and friends are 1.3GB against a 500MB limit -- and importing
+# it here made this module unimportable on serverless, which crashed the whole
+# app at startup. ChromaDBCache imports it when it is actually constructed.
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +170,8 @@ def _decode_urls(raw: Any) -> List[Any]:
 
 class ChromaDBCache:
     def __init__(self, collection_name=None, db_path=None):
+        import chromadb  # local: see the note at the top of this module
+
         collection_name = collection_name or config.CHROMA_COLLECTION
         db_path = db_path or config.CHROMA_PATH
 
