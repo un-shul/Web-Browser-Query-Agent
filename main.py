@@ -1,83 +1,74 @@
-"""Command-line entry point.
-
-Same pipeline as the web app, without the SSE plumbing. Useful for testing the
-agent without a browser.
-"""
+"""Command-line entry point. Same pipeline as the web app, printed."""
 
 import logging
 import os
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-from agent import is_junk
-from cache_chromadb import add_to_cache, find_similar_query
-from summarizer import summarize_text
-from web_search import SearchError, fetch_contents, search
+import pipeline
+
+ICONS = {
+    "validating": "🔎", "classified": "🏷️ ", "cache": "💾", "cache_miss": "💾",
+    "searching": "🌐", "found": "✅", "scraping": "📄", "read": "📄",
+    "summarizing": "✂️ ", "caching": "💾", "complete": "✨", "error": "❌",
+}
 
 
-def process(query: str) -> None:
-    # Step 1: cheap validity gate
-    if is_junk(query):
-        print("❌ That does not look like a searchable query.")
-        return
+def process(query: str, force_refresh: bool = False) -> None:
+    for event in pipeline.process_query(query, force_refresh=force_refresh):
+        icon = ICONS.get(event.stage, "  ")
 
-    # Step 2: semantic cache
-    cached, similarity = find_similar_query(query)
-    if cached:
-        print(f"✅ Cached result (similarity {similarity:.2f})")
-        print("\n📄 Summary:\n" + cached)
-        return
+        if event.stage == "error":
+            print(f"{icon} {event.message}")
+            return
 
-    # Step 3: search
-    print("🌐 Searching...")
-    try:
-        bundle = search(query)
-    except SearchError as exc:
-        print(f"❌ {exc}")
-        return
-    if not bundle.results:
-        print("⚠️  No search results found.")
-        return
+        if event.stage == "read":
+            print(f"{icon} {event.message}")
+            for i, src in enumerate(event.data.get("sources", []), 1):
+                print(f"     [{i}] via {src['via']:<10} {src['url']}")
+            continue
 
-    # Step 4: fetch pages concurrently
-    print(f"📄 Reading {len(bundle.results)} pages...")
-    pages = fetch_contents(bundle.results)
-    if not pages:
-        print("⚠️  Could not extract content from any page.")
-        return
-    for i, page in enumerate(pages, 1):
-        print(f"   [{i}] via {page.via:<10} {len(page.text):>6} chars  {page.url}")
+        if event.stage == "complete":
+            verdict = event.data.get("verdict") or {}
+            print(f"\n{icon} {'From cache' if event.data.get('is_cached') else 'Fresh answer'}", end="")
+            if event.data.get("similarity") is not None:
+                print(f" (similarity {event.data['similarity']:.3f})", end="")
+            print(f"\n\n📄 Summary:\n{event.data.get('summary', '')}")
 
-    # Step 5: summarise
-    print("\n✂️  Summarising...")
-    try:
-        summary = summarize_text("\n\n".join(p.text[:5000] for p in pages), query)
-    except Exception as exc:
-        print(f"❌ Summarisation failed: {exc}")
-        return
+            sources = event.data.get("sources") or []
+            if sources:
+                print("\n🔗 Sources:")
+                for src in sources:
+                    if isinstance(src, dict):
+                        print(f"   - {src.get('title') or src.get('url')}")
+                        print(f"     {src.get('url')}")
+                    else:
+                        print(f"   - {src}")
 
-    # Step 6: cache and report
-    add_to_cache(query, summary)
-    print("\n📄 Summary:\n" + summary)
-    print("\n🔗 Sources:")
-    for page in pages:
-        print(f"   - {page.title or page.url}")
-        print(f"     {page.url}")
+            if verdict:
+                print(f"\n🏷️  {verdict.get('volatility')} "
+                      f"(via {verdict.get('source')}) "
+                      f"ttl={pipeline._human(verdict.get('ttl_seconds', 0))}")
+            continue
+
+        print(f"{icon} {event.message}")
 
 
 def main() -> None:
     logging.basicConfig(level=logging.WARNING, format="[%(levelname)s] %(message)s")
+    print("Web Browser Query Agent. Prefix a query with '!' to force a refresh.")
     while True:
         try:
-            query = input("\nEnter your query (or 'exit'): ").strip()
+            raw = input("\nEnter your query (or 'exit'): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
-        if not query:
+        if not raw:
             continue
-        if query.lower() in {"exit", "quit"}:
+        if raw.lower() in {"exit", "quit"}:
             break
-        process(query)
+        force = raw.startswith("!")
+        process(raw.lstrip("!").strip(), force_refresh=force)
 
 
 if __name__ == "__main__":
