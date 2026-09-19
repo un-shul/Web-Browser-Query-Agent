@@ -96,13 +96,39 @@ _BOILERPLATE = re.compile(
 # Keep hyphens, parentheses, percent, and slashes. Stripping hyphens turned
 # "light-dependent" into "lightdependent" and "3-phosphoglyceric" into
 # "3phosphoglyceric" in real output.
-_ALLOWED_CHARS = re.compile(r"[^\w\s,.!?'\-()%/:&]")
+_ALLOWED_CHARS = re.compile(r"""[^\w\s,.!?'"\-()%/:&;]""")
 
 _NAV_RUN = re.compile(r"(?:\b[A-Z][a-z]+\b[ \t]*){6,}(?=[A-Z][a-z]+\b)")
+
+# Tavily returns markdown, so provider-sourced pages carry link syntax and bare
+# URLs into the text. Allowing ':' and '/' for legitimate prose let those
+# through, producing "English Learners in STEM (https: //ssec. Si. Edu/...)".
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
+_MD_SYNTAX = re.compile(r"^\s{0,3}(#{1,6}|[-*+]|\d+\.)\s+", re.M)
+
+# Source pages use typographic punctuation. Normalise before filtering
+# characters, or "Earth’s" loses its apostrophe and becomes "Earth s".
+_UNICODE_MAP = {
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u2033": '"',
+    "\u2013": "-", "\u2014": "-", "\u2012": "-", "\u2212": "-", "\u2010": "-",
+    "\u2026": "...", "\u00a0": " ", "\u200b": "", "\ufeff": "",
+    "\u00ad": "", "\u2022": " ", "\u00b7": " ",
+}
 
 
 def clean_text(text: str) -> str:
     """Strip page furniture without damaging prose."""
+    for bad, good in _UNICODE_MAP.items():
+        if bad in text:
+            text = text.replace(bad, good)
+    # Keep markdown link text, drop the target.
+    text = _MD_IMAGE.sub(" ", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _URL.sub(" ", text)
+    text = _MD_SYNTAX.sub("", text)
     text = _BOILERPLATE.sub(" ", text)
     # Long runs of Capitalised Words With No Punctuation are navigation menus
     # and headline lists. This replaces a filter that dropped any sentence

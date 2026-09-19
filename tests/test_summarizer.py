@@ -189,3 +189,63 @@ def test_short_input_is_reported_not_summarised():
 
 def test_fix_punctuation_capitalises_after_periods():
     assert S.fix_punctuation("one thing. two thing.") == "One thing. Two thing."
+
+
+# --- markdown and unicode ----------------------------------------------------
+# Provider-sourced pages arrive as markdown, so these paths only trigger when
+# the scrape fallback chain reaches Tavily's raw_content.
+
+
+def test_unicode_apostrophe_is_preserved_as_ascii():
+    """Regression: U+2019 fell outside the allowed-character class and became a
+    space, so "Earth's atmosphere" rendered as "Earth s atmosphere"."""
+    assert "Earth's" in S.clean_text("Earth’s atmosphere")
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("“quoted”", '"quoted"'),
+        ("a — b", "a - b"),
+        ("a – b", "a - b"),
+        ("wait… ok", "wait... ok"),
+    ],
+)
+def test_typographic_punctuation_is_normalised(raw, expected):
+    assert expected in S.clean_text(f"Sentence with {raw} inside.")
+
+
+def test_non_breaking_space_becomes_a_space():
+    assert "10 kg" in S.clean_text("The mass is 10 kg total.")
+
+
+def test_markdown_link_keeps_text_and_drops_target():
+    """Regression: allowing ':' and '/' for prose let URLs through, producing
+    "English Learners in STEM (https: //ssec. Si. Edu/...)" in a summary."""
+    out = S.clean_text("See [English Learners in STEM](https://ssec.si.edu/x) for more.")
+    assert "English Learners in STEM" in out
+    assert "ssec.si.edu" not in out
+
+
+def test_bare_url_is_removed():
+    out = S.clean_text("Read https://ssec.si.edu/stemvisions-blog/what-photosynthesis today.")
+    assert "http" not in out
+    assert "Read" in out and "today" in out
+
+
+def test_markdown_image_is_removed_entirely():
+    out = S.clean_text("![diagram](https://x.com/a.png) Photosynthesis converts light.")
+    assert "diagram" not in out
+    assert "Photosynthesis converts light" in out
+
+
+def test_markdown_heading_and_bullet_markers_are_stripped():
+    out = S.clean_text("## What is Photosynthesis\n- Plants use light.")
+    assert "#" not in out and not out.lstrip().startswith("-")
+    assert "Plants use light" in out
+
+
+def test_legitimate_punctuation_still_survives_url_stripping():
+    out = S.clean_text("Roughly 30% of light-dependent energy (NADPH) is lost.")
+    for token in ("30%", "light-dependent", "(NADPH)"):
+        assert token in out
