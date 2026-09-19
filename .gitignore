@@ -1,12 +1,27 @@
+# Virtualenvs
 venv/
+.venv/
 __pycache__/
-embedding_model/
-chroma_db/
 *.pyc
-*.pkl
-*.log
-.DS_Store
+
+# Secrets -- never commit these
+.env
+.env.local
+
+# Large local model artifacts (regenerate with train_classifier.py)
+embedding_model/
 *.safetensors
 *.h5
 *.pt
 *.ckpt
+
+# Local vector store
+chroma_db/
+
+# The sklearn pickle is a convenience artifact; classifier.json is the one
+# that matters and is committed deliberately (see the negation below).
+*.pkl
+!classifier.json
+
+*.log
+.DS_Store

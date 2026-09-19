@@ -1,14 +1,17 @@
-from flask import Flask, render_template, request, jsonify, Response
-from agent import classify_query
-from cache_chromadb import find_similar_query, add_to_cache, get_cache_stats
-from web_search import search_duckduckgo, scrape_page
-from summarizer import summarize_text
-import time
-import os
 import json
+import os
+import time
 
-# Set environment variable for tokenizers
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# Must be set before any tokenizer is constructed.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+from flask import Flask, Response, jsonify, render_template, request
+
+import config
+from agent import is_junk
+from cache_chromadb import add_to_cache, find_similar_query, get_cache_stats
+from summarizer import summarize_text
+from web_search import scrape_page, search_duckduckgo
 
 app = Flask(__name__)
 
@@ -21,7 +24,7 @@ def web_process_query_with_progress(query):
             # Step 1: Validate query
             yield f"data: {json.dumps({'stage': 'validating', 'message': 'Validating your query...', 'progress': 5})}\n\n"
             
-            if classify_query(query) == "invalid":
+            if is_junk(query):
                 yield f"data: {json.dumps({'stage': 'error', 'message': 'Invalid query. Please try a different search term.', 'progress': 0})}\n\n"
                 return
             
@@ -100,8 +103,8 @@ def search():
     if not query:
         return jsonify({'error': 'Please enter a search query'}), 400
     
-    # Simple validation
-    if classify_query(query) == "invalid":
+    # Validity gate -- see agent.is_junk for why this is not classify_query
+    if is_junk(query):
         return jsonify({'error': 'Invalid query. Please try a different search term.'}), 400
     
     try:
@@ -219,4 +222,6 @@ def cache_clear():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Debug mode is opt-in via FLASK_DEBUG; it must never be on in production,
+    # where it would expose an interactive debugger.
+    app.run(debug=config.FLASK_DEBUG)

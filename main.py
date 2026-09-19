@@ -2,7 +2,7 @@ import os
 import time
 from web_search import search_duckduckgo, scrape_page
 from cache_chromadb import find_similar_query, add_to_cache, get_cache_stats
-from agent import classify_query
+from agent import is_junk
 from summarizer import summarize_text
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -14,7 +14,7 @@ def main():
             break
 
         # Step 1: Validate query
-        if classify_query(query) == "invalid":
+        if is_junk(query):
             print("❌ Invalid query")
             continue
 

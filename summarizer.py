@@ -2,15 +2,37 @@ import contextlib
 import os
 import sys
 import re
+import threading
 import warnings
 import logging
-from transformers import pipeline
+
+import config
 
 # Suppress transformers warnings and logging
 logging.getLogger("transformers").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
-summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+_summarizer = None
+_summarizer_lock = threading.Lock()
+
+
+def get_summarizer():
+    """Build the summarization pipeline on first use.
+
+    This used to run at import time, which pulled ~1.2GB of model weights into
+    memory before the app could serve a single request.
+    """
+    global _summarizer
+    if _summarizer is not None:
+        return _summarizer
+    with _summarizer_lock:
+        if _summarizer is None:  # re-check under the lock
+            from transformers import pipeline
+
+            _summarizer = pipeline(
+                "summarization", model=config.LOCAL_SUMMARIZER_MODEL
+            )
+    return _summarizer
 
 # Silence ALL output (both stdout and stderr) including Hugging Face warnings
 @contextlib.contextmanager
@@ -124,7 +146,9 @@ def summarize_text(text, query=None, max_chunk_words=380):
     for chunk in chunks:
         try:
             with suppress_warnings():
-                summary = summarizer(chunk, max_length=160, min_length=50, do_sample=False)
+                summary = get_summarizer()(
+                    chunk, max_length=160, min_length=50, do_sample=False
+                )
             summaries.append(summary[0]['summary_text'])
         except Exception as e:
             print(f"⚠️ Skipping chunk due to error: {e}")

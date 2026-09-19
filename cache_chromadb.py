@@ -1,10 +1,16 @@
-import chromadb
-from sentence_transformers import SentenceTransformer, util
+import logging
+import threading
 import uuid
-import os
+
+import chromadb
+
+import config
+import embeddings
+
+log = logging.getLogger(__name__)
 
 class ChromaDBCache:
-    def __init__(self, collection_name="query_cache", db_path="./chroma_db"):
+    def __init__(self, collection_name=None, db_path=None):
         """
         Initialize ChromaDB cache
         
@@ -12,19 +18,21 @@ class ChromaDBCache:
             collection_name: Name of the ChromaDB collection
             db_path: Path to store ChromaDB files
         """
-        # Create ChromaDB client with persistent storage
+        collection_name = collection_name or config.CHROMA_COLLECTION
+        db_path = db_path or config.CHROMA_PATH
+
         self.client = chromadb.PersistentClient(path=db_path)
-        
-        # Create or get collection with cosine similarity
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"}
+            metadata={"hnsw:space": "cosine"},
         )
-        
-        # Load the same embedding model
-        self.model = SentenceTransformer("embedding_model")
-        
-        print(f"ChromaDB Cache initialized with {self.collection.count()} cached queries")
+        log.info("ChromaDB cache ready (%d entries)", self.collection.count())
+
+    # The embedder is shared process-wide and loaded on first use, so
+    # constructing this class no longer pulls a ~90MB model into memory.
+    @property
+    def model(self):
+        return embeddings.get_embedder()
     
     def find_similar_query(self, new_query, threshold=0.75):
         """
@@ -105,7 +113,7 @@ class ChromaDBCache:
             return {
                 "total_queries": count,
                 "collection_name": self.collection.name,
-                "database_path": "./chroma_db"
+                "database_path": config.CHROMA_PATH,
             }
         except Exception as e:
             print(f"Error getting cache stats: {e}")
@@ -130,8 +138,19 @@ class ChromaDBCache:
         except Exception as e:
             print(f"Error clearing cache: {e}")
 
-# Create global cache instance
-cache_db = ChromaDBCache()
+_cache_db = None
+_cache_lock = threading.Lock()
+
+
+def get_cache() -> "ChromaDBCache":
+    """Return the shared cache, constructing it on first use."""
+    global _cache_db
+    if _cache_db is not None:
+        return _cache_db
+    with _cache_lock:
+        if _cache_db is None:  # re-check under the lock
+            _cache_db = ChromaDBCache()
+    return _cache_db
 
 # Wrapper functions to match the original API
 def find_similar_query(new_query, threshold=0.75):
@@ -145,7 +164,7 @@ def find_similar_query(new_query, threshold=0.75):
     Returns:
         tuple: (summary, similarity) if found, (None, None) if not found
     """
-    return cache_db.find_similar_query(new_query, threshold)
+    return get_cache().find_similar_query(new_query, threshold)
 
 def add_to_cache(query, summary):
     """
@@ -155,7 +174,7 @@ def add_to_cache(query, summary):
         query: Query string
         summary: Summary text to cache
     """
-    return cache_db.add_to_cache(query, summary)
+    return get_cache().add_to_cache(query, summary)
 
 def get_cache_stats():
     """
@@ -164,13 +183,13 @@ def get_cache_stats():
     Returns:
         dict: Cache statistics
     """
-    return cache_db.get_cache_stats()
+    return get_cache().get_cache_stats()
 
 def clear_cache():
     """
     Clear all cache entries
     """
-    return cache_db.clear_cache()
+    return get_cache().clear_cache()
 
 def view_all_cache():
     """
@@ -181,7 +200,7 @@ def view_all_cache():
     """
     try:
         # Get all items from cache
-        results = cache_db.collection.get()
+        results = get_cache().collection.get()
         
         cache_items = []
         for i in range(len(results['ids'])):
@@ -231,7 +250,7 @@ def delete_cache_item(query_id):
         bool: True if successful, False otherwise
     """
     try:
-        cache_db.collection.delete(ids=[query_id])
+        get_cache().collection.delete(ids=[query_id])
         print(f"🗑️ Deleted cache item: {query_id}")
         return True
     except Exception as e:

@@ -1,0 +1,8 @@
+-r requirements.txt
+
+pytest==8.4.2
+responses==0.25.8
+
+# Local-only JS-heavy page fallback. Cannot run on Vercel serverless.
+# After installing: python -m playwright install chromium
+playwright==1.56.0
