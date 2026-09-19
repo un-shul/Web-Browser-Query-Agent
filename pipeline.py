@@ -20,6 +20,7 @@ import cache_chromadb as cache
 import config
 import embeddings
 import volatility_policy as vp
+from llm_gateway import reranker, router
 from summarizer import summarize_text
 from web_search import SearchError, fetch_contents, search
 
@@ -36,9 +37,15 @@ class QueryVerdict:
     search_topic: str = "general"
     time_range: Optional[str] = None
     reason: str = ""
-    source: str = ""  # heuristic:<rule> | lr | llm:<provider> | default
+    source: str = ""  # gate | lr | heuristic:<rule> | llm | memo(...) | default
+    search_query: Optional[str] = None
+    confidence: Optional[float] = None
     p_valid: Optional[float] = None
     llm_calls: int = 0
+    degraded: bool = False
+    # Set when the regex floor overrode a less volatile LLM verdict.
+    escalated_from: Optional[str] = None
+    heuristic_floor: Optional[str] = None
 
 
 @dataclass
@@ -54,71 +61,43 @@ class ProgressEvent:
         return out
 
 
-def classify(query: str, embedding=None) -> QueryVerdict:
+def classify(query: str, embedding=None, allow_llm: bool = True) -> QueryVerdict:
     """Decide validity and volatility.
 
-    Deliberately ordered so the common cases cost nothing. Once the LLM router
-    lands it slots in after step 3, and everything before it stays free.
+    Delegates to llm_gateway.router, which spends at most one LLM call and
+    skips it entirely for junk, memoised repeats, and anything the regex
+    heuristics can settle.
     """
-    # 1. Cheap character-level gates. No model, no embedding.
-    stripped = (query or "").strip()
-    if len(stripped) < 3 or len(stripped) > 400:
-        return QueryVerdict(is_valid=False, reason="query length out of range", source="gate")
-    if not any(ch.isalpha() for ch in stripped):
-        return QueryVerdict(is_valid=False, reason="no alphabetic characters", source="gate")
-
-    # 2. Logistic-regression gate. See agent.is_junk for why the threshold is
-    #    0.05 and not the model's own 0.5 boundary.
-    label, p_valid = agent.classify_query_with_confidence(stripped, embedding)
-    if p_valid is not None and p_valid < config.LR_REJECT_P:
-        return QueryVerdict(
-            is_valid=False,
-            reason=f"classifier confident this is not a query (p={p_valid:.3f})",
-            source="lr",
-            p_valid=p_valid,
-        )
-
-    # 3. Deterministic volatility heuristics. Free, and the escalation floor
-    #    for whatever the router later says.
-    guess, rule = vp.heuristic_volatility(stripped)
-    volatility = guess or vp.DEFAULT_VOLATILITY
-    source = f"heuristic:{rule}" if rule else "default"
-
-    return QueryVerdict(
-        is_valid=True,
-        volatility=volatility,
-        ttl_seconds=vp.ttl_for(volatility),
-        search_topic="news" if volatility in (vp.DYNAMIC, vp.REALTIME) else "general",
-        time_range="day" if volatility == vp.REALTIME else None,
-        reason=f"matched {rule}" if rule else "no heuristic matched; using default",
-        source=source,
-        p_valid=p_valid,
-    )
+    verdict = router.route(query, embedding=embedding, allow_llm=allow_llm)
+    return QueryVerdict(**{k: v for k, v in verdict.items() if k in QueryVerdict.__dataclass_fields__})
 
 
 def lookup_cache(query: str, verdict: QueryVerdict, embedding=None) -> Dict[str, Any]:
     """Find a reusable cached answer, or explain why there isn't one.
 
-    Returns an audit trail rather than just a hit/miss, so the UI can show why
-    a decision was made.
+    Returns an audit trail rather than a bare hit/miss, so the UI can show
+    which candidates were considered and why the decision went as it did.
     """
     trail: Dict[str, Any] = {
         "hit": False, "summary": None, "similarity": None, "candidates": [],
         "expired_skipped": 0, "decision": "", "entry_id": None, "sources": [],
+        "llm_calls": 0, "verifier": "", "reason": "", "degraded": False,
     }
 
     # A realtime query never reuses another query's answer, however similar.
-    # Only its own short-TTL entry can serve it, which is what makes this
-    # structural rather than a threshold to tune.
+    # Only its own short-TTL entry can serve it, which makes this structural
+    # rather than a threshold to tune.
     if verdict.volatility == vp.REALTIME:
         fresh, expired = cache.find_similar_candidates(
             query, k=1, floor=0.98, embedding=embedding
         )
         trail["expired_skipped"] = len(expired)
         if fresh:
+            cache.touch(fresh[0].id)
             trail.update(
                 hit=True, summary=fresh[0].summary, similarity=fresh[0].similarity,
                 entry_id=fresh[0].id, sources=fresh[0].source_urls,
+                verifier="realtime_window",
                 decision="exact realtime re-ask inside its 90s window",
             )
         else:
@@ -127,39 +106,32 @@ def lookup_cache(query: str, verdict: QueryVerdict, embedding=None) -> Dict[str,
 
     fresh, expired = cache.find_similar_candidates(query, embedding=embedding)
     trail["expired_skipped"] = len(expired)
-    trail["candidates"] = [
-        {"query": c.query, "similarity": round(c.similarity, 4),
-         "volatility": c.volatility, "age_seconds": c.age_seconds}
-        for c in fresh
-    ]
 
-    # Upgrade any legacy entry we touched, using heuristics only.
+    # Upgrade any legacy entry we touched, heuristics only -- migration must
+    # never spend an LLM call.
     for candidate in list(fresh) + list(expired):
         if candidate.schema_version < cache.SCHEMA_VERSION:
             cache.get_cache().backfill(candidate)
 
-    if not fresh:
-        trail["decision"] = (
-            f"no fresh candidate above {config.CANDIDATE_FLOOR:.2f}"
-            + (f" ({len(expired)} expired)" if expired else "")
-        )
-        return trail
+    outcome = reranker.verify(query, fresh)
+    trail["candidates"] = outcome.candidates
+    trail["llm_calls"] = outcome.llm_calls
+    trail["verifier"] = outcome.decision
+    trail["reason"] = outcome.reason
+    trail["degraded"] = outcome.degraded
 
-    best = fresh[0]
-    # Without an LLM verifier this is the legacy threshold, so degraded mode is
-    # never worse than the pre-router app. The reranker replaces this branch.
-    if best.similarity >= config.LEGACY_SIM_THRESHOLD:
+    if outcome.accepted and outcome.index is not None:
+        best = fresh[outcome.index]
         cache.touch(best.id)
         trail.update(
             hit=True, summary=best.summary, similarity=best.similarity,
             entry_id=best.id, sources=best.source_urls,
-            decision=f"similarity {best.similarity:.3f} >= {config.LEGACY_SIM_THRESHOLD:.2f}",
+            decision=outcome.reason,
         )
     else:
-        trail["decision"] = (
-            f"best similarity {best.similarity:.3f} below "
-            f"{config.LEGACY_SIM_THRESHOLD:.2f}"
-        )
+        trail["decision"] = outcome.reason or "no usable cached answer"
+        if expired and not fresh:
+            trail["decision"] += f" ({len(expired)} expired)"
     return trail
 
 
@@ -211,7 +183,8 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
     # --- search ---
     yield ProgressEvent("searching", "Searching the web...", 25)
     try:
-        bundle = search(query, topic=verdict.search_topic, time_range=verdict.time_range)
+        bundle = search(verdict.search_query or query,
+                        topic=verdict.search_topic, time_range=verdict.time_range)
     except SearchError as exc:
         yield ProgressEvent("error", str(exc), 0)
         return

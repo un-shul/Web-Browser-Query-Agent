@@ -63,13 +63,18 @@ UPSTASH_VECTOR_REST_URL = _str("UPSTASH_VECTOR_REST_URL", "")
 UPSTASH_VECTOR_REST_TOKEN = _str("UPSTASH_VECTOR_REST_TOKEN", "")
 
 # --- Models ------------------------------------------------------------------
-GEMINI_MODEL = _str("GEMINI_MODEL", "gemini-2.0-flash")
+# The "-latest" alias deliberately: pinned ids retire. gemini-2.0-flash was
+# the pinned default here and now returns 404 "no longer available". An alias
+# may shift behaviour under us, but for JSON classification that is a better
+# trade than an app that stops working.
+GEMINI_MODEL = _str("GEMINI_MODEL", "gemini-flash-lite-latest")
 GEMINI_EMBED_MODEL = _str("GEMINI_EMBED_MODEL", "gemini-embedding-001")
 # Upstash free tier caps indexes at 1536 dimensions and gemini-embedding-001
 # defaults to 3072, so truncate. Truncated Matryoshka output must be
 # L2-renormalized, which the embedding provider does.
 GEMINI_EMBED_DIM = _int("GEMINI_EMBED_DIM", 768)
-GROQ_MODEL = _str("GROQ_MODEL", "llama-3.3-70b-versatile")
+# llama-3.3-70b-versatile was the default and is no longer served.
+GROQ_MODEL = _str("GROQ_MODEL", "openai/gpt-oss-20b")
 
 LOCAL_EMBED_MODEL = _str("LOCAL_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBEDDING_MODEL_PATH = _str("EMBEDDING_MODEL_PATH", "")

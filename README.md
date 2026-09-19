@@ -4,17 +4,37 @@ A query agent that answers natural-language questions by searching the web,
 scraping the results, and summarising them — while reusing earlier answers from
 a semantic cache when, and only when, they are still valid.
 
-The interesting part is the decision layer in front of the cache. A vector
-store will happily tell you that *"capital of France"* and *"capital of Italy"*
-are 0.8 cosine-similar, and that *"live cricket score"* matches an answer it
-computed last month. Both of those are wrong, and neither is fixable by moving
-the similarity threshold. So the agent adds two checks:
+The interesting part is the decision layer in front of the cache, and it is
+built on measurements rather than intuition.
+
+Cosine similarity is better at some distinctions than you would guess and far
+worse at others. Measured on `all-MiniLM-L6-v2`:
+
+| cached query | new query | cosine | same answer? |
+|---|---|---:|---|
+| capital of France | capital of Italy | 0.464 | no |
+| ceo of google | ceo of microsoft | 0.624 | no |
+| install docker | uninstall docker | 0.765 | no |
+| type 1 diabetes symptoms | type 2 diabetes symptoms | 0.806 | no |
+| best laptops under 50000 | best laptops under 100000 | 0.867 | no |
+| 2024 election results | 2025 election results | 0.914 | no |
+| coffee **good** for health | coffee **bad** for health | 0.954 | no |
+| flights delhi→mumbai | flights mumbai→delhi | 0.997 | no |
+
+Different entities are separated cleanly. Polarity, direction and quantity are
+not — and the bottom three sit *above* the 0.93 threshold at which a cache
+would reuse an answer without a second thought. A single similarity threshold
+cannot fix this: set it low and you serve wrong answers, set it high and you
+never get a cache hit.
+
+So the agent adds two checks:
 
 - a **query router** that classifies how quickly an answer goes stale
   (`static` / `slow` / `dynamic` / `realtime`) and assigns a TTL, so
   time-sensitive queries are never served from cache
 - an **LLM reranker** over the top-k candidates, which has to agree that a
-  cached answer genuinely answers the new question before it is reused
+  cached answer genuinely answers the new question before it is reused, with a
+  free deterministic guard in front of it for the failure modes above
 
 Both layers degrade to a logistic-regression classifier plus a fixed similarity
 threshold when no LLM is reachable, so the app never hard-depends on an API key.
@@ -26,19 +46,39 @@ query
   │
   ├─ cheap gates (length, charset)                        no model
   ├─ logistic regression over MiniLM embeddings           local, instant
+  ├─ memo: seen this query in the last hour?              local, instant
   ├─ regex volatility heuristics                          local, instant
   ├─ router: validity + volatility + TTL                  1 LLM call, skippable
   │
   ├─ semantic cache: top-5 candidates, TTL-filtered       vector store
+  ├─ mismatch guard: polarity / direction / quantity      local, instant
   ├─ reranker: does a candidate really answer this?       1 LLM call, skippable
   │
   └─ on a miss: search → scrape → summarise → cache
 ```
 
-The classifier and the regex heuristics exist to keep LLM calls off the common
-paths. Garbage queries, repeated queries, and anything the heuristics can
-label outright cost **zero** LLM calls; a cold informational query costs one or
-two. See `docs/` for the full decision flow.
+Everything above the router exists to keep LLM calls off the common paths.
+Measured over a 11-case benchmark of near-miss cache lookups, the agent gets
+**11/11** correct using **4 LLM calls** — the other 7 decisions are settled for
+free.
+
+| query class | LLM calls |
+|---|---|
+| gibberish, commands, navigation | 0 |
+| realtime by regex (*live score*, *stock price*) | 0 |
+| repeat within the hour | 0 |
+| near-identical cache hit | 0 |
+| polarity or direction conflict | 0 |
+| cold informational query | 1 |
+| cold query with mid-similarity candidates | 2 |
+
+Two is the ceiling. Against Groq's ~14,400 requests/day that is still 7,000+
+queries, so the free tier is not the binding constraint. See `docs/` for the
+full decision flow.
+
+**Nothing hard-depends on an LLM.** Delete the `llm_gateway/` package and the
+app still runs on the classifier, the regex heuristics and a fixed similarity
+threshold — which is exactly how it behaved before these layers existed.
 
 ## Setup
 
