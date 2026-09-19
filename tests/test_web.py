@@ -72,12 +72,22 @@ def test_nav_marks_the_current_page(client):
 # --- healthz -----------------------------------------------------------------
 
 
-def test_healthz_reports_backends(client):
+# The exact contract, asserted as a set. A previous version listed the keys
+# loosely with `key in body`, and when a bulk rename mangled both the response
+# key and this list in the same direction the test kept passing while the API
+# shipped "queryagent.upstash" instead of "vector_store". An exact comparison
+# fails on a renamed key and on an accidentally added one.
+HEALTHZ_KEYS = {
+    "ok", "problems", "cache_available", "classifier_loaded",
+    "embed_provider", "embedder_available", "llm_provider",
+    "search_configured", "summarizer", "vector_store",
+}
+
+
+def test_healthz_reports_exactly_the_expected_keys(client):
     body = client.get("/healthz").get_json()
+    assert set(body) == HEALTHZ_KEYS
     assert body["ok"] is True
-    for key in ["search_configured", "llm_provider", "queryagent.upstash",
-                "classifier_loaded", "embedder_available"]:
-        assert key in body
 
 
 # --- SSE ---------------------------------------------------------------------

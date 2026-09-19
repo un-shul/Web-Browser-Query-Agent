@@ -186,8 +186,8 @@ def healthz():
         "search_configured": bool(config.TAVILY_API_KEY),
         "llm_provider": config.LLM_PROVIDER,
         "embed_provider": config.EMBED_PROVIDER,
-        "queryagent.upstash": config.VECTOR_STORE,
-        "queryagent.local": config.SUMMARIZER,
+        "vector_store": config.VECTOR_STORE,
+        "summarizer": config.SUMMARIZER,
         "classifier_loaded": classifier.is_available(),
         "embedder_available": embeddings.is_available(),
     })
