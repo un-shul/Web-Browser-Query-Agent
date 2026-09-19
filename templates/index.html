@@ -3,17 +3,23 @@
 
 {% block content %}
 <section class="hero">
-  <h1>A cached answer, only if it is still true.</h1>
+  <h1>Ask the web a question. Get one answer.</h1>
   <p>
-    Answers come from a semantic cache &mdash; but every entry knows how fast it
-    goes stale, and a verifier has to agree that a near-match really answers
-    your question.
+    It searches, reads the top results, and summarises them into a single
+    answer with its sources. Ask something similar later and it replies
+    instantly from memory &mdash; unless the answer could have changed since,
+    in which case it goes and looks again.
   </p>
+  <ul class="pitch">
+    <li><strong>One answer</strong>, not a page of links</li>
+    <li><strong>Remembers</strong> what it already knows</li>
+    <li><strong>Knows what expires</strong> &mdash; live scores are never reused</li>
+  </ul>
 </section>
 
 <form class="search" id="searchForm" autocomplete="off">
-  <input type="text" id="queryInput" placeholder="what is photosynthesis" required
-         aria-label="Search query">
+  <input type="text" id="queryInput" placeholder="Write your query here&hellip;"
+         required aria-label="Your question">
   <button class="btn" type="submit" id="searchButton">Search</button>
 </form>
 
@@ -63,7 +69,19 @@
 </div>
 
 <div class="card hidden" id="historyCard">
-  <h2>Recent</h2>
+  <div class="history-head">
+    <h2>Recent</h2>
+    <div class="history-tools">
+      <label class="pick-all">
+        <input type="checkbox" id="selectAll" aria-label="Select all recent queries">
+        Select all
+      </label>
+      <button class="btn-ghost" type="button" id="deleteSelected" disabled>
+        Delete selected
+      </button>
+      <button class="btn-ghost" type="button" id="clearHistory">Clear all</button>
+    </div>
+  </div>
   <div class="history" id="history"></div>
 </div>
 {% endblock %}

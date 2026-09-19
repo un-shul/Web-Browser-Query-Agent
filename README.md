@@ -114,6 +114,11 @@ python app.py        # web UI at http://127.0.0.1:5000
 python preflight.py  # check every backend with a live call
 ```
 
+On macOS, Control Center's AirPlay Receiver also listens on port 5000. Flask
+still binds to `127.0.0.1:5000` and wins, but if the page will not load, turn
+AirPlay Receiver off in System Settings → General → AirDrop & Handoff, or run
+`python app.py` behind `FLASK_RUN_PORT`.
+
 `preflight.py` is worth running before any deploy. Every check makes a real
 request, because the failures that matter are the ones a config file cannot
 show: a retired model id, an index created with the wrong dimension, a key

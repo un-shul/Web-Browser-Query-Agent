@@ -26,6 +26,9 @@
   var sourcesBox = document.getElementById("sources");
   var historyCard = document.getElementById("historyCard");
   var historyBox = document.getElementById("history");
+  var selectAll = document.getElementById("selectAll");
+  var deleteSelected = document.getElementById("deleteSelected");
+  var clearHistory = document.getElementById("clearHistory");
   var copyBtn = document.getElementById("copyBtn");
   var refreshBtn = document.getElementById("refreshBtn");
 
@@ -315,17 +318,49 @@
     if (!q) return;
     var items = loadHistory().filter(function (x) { return x !== q; });
     items.unshift(q);
-    try { localStorage.setItem("history", JSON.stringify(items.slice(0, 8))); } catch (e) {}
+    saveHistory(items.slice(0, 12));
+  }
+
+  function saveHistory(items) {
+    try { localStorage.setItem("history", JSON.stringify(items)); } catch (e) {}
     renderHistory();
+  }
+
+  function selectedQueries() {
+    return Array.prototype.slice
+      .call(historyBox.querySelectorAll("input[type=checkbox]:checked"))
+      .map(function (box) { return box.value; });
+  }
+
+  function syncTools() {
+    var boxes = historyBox.querySelectorAll("input[type=checkbox]");
+    var chosen = selectedQueries().length;
+    deleteSelected.disabled = chosen === 0;
+    deleteSelected.textContent = chosen
+      ? "Delete selected (" + chosen + ")" : "Delete selected";
+    selectAll.checked = boxes.length > 0 && chosen === boxes.length;
+    // Distinct from both checked and unchecked, so "some selected" is visible
+    // rather than looking like "none selected".
+    selectAll.indeterminate = chosen > 0 && chosen < boxes.length;
   }
 
   function renderHistory() {
     var items = loadHistory();
-    if (!items.length) { historyCard.classList.add("hidden"); return; }
+    if (!items.length) {
+      historyCard.classList.add("hidden");
+      return;
+    }
     historyBox.innerHTML = items.map(function (q) {
-      return "<button type=\"button\">" + esc(q) + "</button>";
+      return '<div class="history-row">' +
+             '<input type="checkbox" value="' + esc(q) +
+             '" aria-label="Select \u201c' + esc(q) + '\u201d">' +
+             '<button type="button" class="history-query">' + esc(q) + "</button>" +
+             '<button type="button" class="history-remove" data-remove="' + esc(q) +
+             '" aria-label="Remove \u201c' + esc(q) + '\u201d" title="Remove">' +
+             "\u2715</button></div>";
     }).join("");
     historyCard.classList.remove("hidden");
+    syncTools();
   }
 
   // --- run ---
@@ -384,7 +419,38 @@
   });
 
   historyBox.addEventListener("click", function (e) {
-    if (e.target.tagName === "BUTTON") run(e.target.textContent.trim(), false);
+    var remove = e.target.getAttribute("data-remove");
+    if (remove !== null) {
+      saveHistory(loadHistory().filter(function (q) { return q !== remove; }));
+      return;
+    }
+    if (e.target.classList.contains("history-query")) {
+      run(e.target.textContent.trim(), false);
+    }
+  });
+
+  historyBox.addEventListener("change", syncTools);
+
+  selectAll.addEventListener("change", function () {
+    Array.prototype.forEach.call(
+      historyBox.querySelectorAll("input[type=checkbox]"),
+      function (box) { box.checked = selectAll.checked; }
+    );
+    syncTools();
+  });
+
+  deleteSelected.addEventListener("click", function () {
+    var doomed = selectedQueries();
+    if (!doomed.length) return;
+    saveHistory(loadHistory().filter(function (q) {
+      return doomed.indexOf(q) === -1;
+    }));
+  });
+
+  clearHistory.addEventListener("click", function () {
+    if (loadHistory().length > 2 &&
+        !window.confirm("Clear all recent queries?")) return;
+    saveHistory([]);
   });
 
   refreshBtn.addEventListener("click", function () { run(lastQuery, true); });
