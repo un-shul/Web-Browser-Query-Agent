@@ -85,8 +85,32 @@ HEALTHZ_KEYS = {
 
 
 def test_healthz_reports_exactly_the_expected_keys(client):
+    assert set(client.get("/healthz").get_json()) == HEALTHZ_KEYS
+
+
+def test_healthz_ok_tracks_the_problem_list(client):
+    """The invariant, rather than the local environment.
+
+    An earlier version asserted ok was True, which held only because the
+    developer had keys in .env. CI has none, so /healthz correctly reported a
+    problem and the test failed there and nowhere else.
+    """
     body = client.get("/healthz").get_json()
-    assert set(body) == HEALTHZ_KEYS
+    assert body["ok"] == (not body["problems"])
+
+
+def test_healthz_names_a_missing_search_key(client):
+    body = client.get("/healthz").get_json()
+    assert body["search_configured"] is False
+    assert any("TAVILY_API_KEY" in p for p in body["problems"])
+
+
+def test_healthz_is_ok_when_everything_is_configured(client, monkeypatch):
+    from queryagent import config
+
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "tvly-test")
+    body = client.get("/healthz").get_json()
+    assert body["problems"] == []
     assert body["ok"] is True
 
 

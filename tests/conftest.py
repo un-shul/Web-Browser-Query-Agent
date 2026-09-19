@@ -48,6 +48,10 @@ def no_llm(monkeypatch):
     """
     monkeypatch.setattr(config, "LLM_DISABLED", True)
     monkeypatch.setattr(config, "LLM_PROVIDER", "none")
+    # Also neutralise the search key. A developer with .env populated would
+    # otherwise see different behaviour from CI, which is how a test asserting
+    # /healthz reported ok passed locally and failed on the runner.
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "")
     providers.set_chain([])
     router.clear_memo()
     providers.get_budget().reset()
