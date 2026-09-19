@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Cache · Query Agent{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Cache</h1>
+  <p>
+    Every entry carries the volatility class it was stored under and an absolute
+    expiry. Expired entries are never served — they are shown here so the
+    policy is visible rather than implied.
+  </p>
+</section>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="card">
+  <h2>By volatility</h2>
+  <div class="vol-bars" id="volBars"></div>
+</div>
+
+<form class="search" id="filterForm" autocomplete="off">
+  <input type="text" id="filterInput" placeholder="Filter by query text"
+         aria-label="Filter cached queries">
+  <button class="btn-ghost" type="button" id="purgeBtn">Purge expired</button>
+</form>
+
+<div id="alert" class="alert hidden" role="alert"></div>
+
+<div class="entries" id="entries"></div>
+<div class="empty hidden" id="empty">Nothing cached yet.</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='cache.js') }}"></script>
+{% endblock %}

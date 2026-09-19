@@ -19,6 +19,12 @@ try:  # optional -- absent in the minimal serverless bundle
 except ImportError:
     pass
 
+# ChromaDB posts anonymised usage telemetry by default. Off here: it is an
+# outbound request nobody asked for, and it slows cold starts. Set before
+# chromadb is imported anywhere.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "chromadb.telemetry.NoopTelemetry")
+
 
 def _str(name: str, default: str) -> str:
     return os.environ.get(name, default).strip()

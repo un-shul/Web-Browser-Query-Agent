@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Query Agent{% endblock %}</title>
+  <meta name="description" content="A web query agent with a volatility-aware semantic cache.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    // Applied before first paint so there is no flash of the wrong theme.
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        if (saved) document.documentElement.dataset.theme = saved;
+        else if (window.matchMedia('(prefers-color-scheme: light)').matches)
+          document.documentElement.dataset.theme = 'light';
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">Query Agent <span>/ semantic cache</span></div>
+      <nav>
+        <a class="btn-ghost" href="{{ url_for('home') }}"
+           {% if request.endpoint == 'home' %}aria-current="page"{% endif %}>Search</a>
+        <a class="btn-ghost" href="{{ url_for('cache_page') }}"
+           {% if request.endpoint == 'cache_page' %}aria-current="page"{% endif %}>Cache</a>
+        <button class="btn-ghost" id="themeToggle" type="button"
+                aria-label="Switch between dark and light theme">◐</button>
+      </nav>
+    </header>
+    {% block content %}{% endblock %}
+  </div>
+  <script>
+    document.getElementById('themeToggle').addEventListener('click', function () {
+      var root = document.documentElement;
+      var next = root.dataset.theme === 'light' ? 'dark' : 'light';
+      root.dataset.theme = next;
+      try { localStorage.setItem('theme', next); } catch (e) {}
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

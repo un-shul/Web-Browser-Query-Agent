@@ -6,12 +6,22 @@ Chroma runs in-memory so nothing touches ./chroma_db.
 
 import hashlib
 import math
+import os
+
+# Set before transformers or huggingface_hub is imported. Tests that touch the
+# summariser's tokeniser otherwise let huggingface_hub phone home to check for
+# model updates -- 84 outbound requests in a suite that is supposed to make
+# none. Offline mode uses the local cache only.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import chromadb
 import pytest
 
 import cache_chromadb
+import config
 import embeddings
+from llm_gateway import providers, router
 
 STUB_DIM = 32
 
@@ -27,6 +37,24 @@ def _stub_vector(text: str):
     raw = [(digest[i % len(digest)] - 128) / 128.0 for i in range(STUB_DIM)]
     norm = math.sqrt(sum(x * x for x in raw)) or 1.0
     return [x / norm for x in raw]
+
+
+@pytest.fixture(autouse=True)
+def no_llm(monkeypatch):
+    """Disable the LLM for every test unless it opts in.
+
+    Without this, a developer with keys in .env runs the whole suite against
+    the real providers: slow, non-deterministic, and quietly spending a daily
+    quota. Tests that need a model install a FakeProvider explicitly.
+    """
+    monkeypatch.setattr(config, "LLM_DISABLED", True)
+    monkeypatch.setattr(config, "LLM_PROVIDER", "none")
+    providers.set_chain([])
+    router.clear_memo()
+    providers.get_budget().reset()
+    yield
+    providers.reset_chain()
+    router.clear_memo()
 
 
 @pytest.fixture(autouse=True)

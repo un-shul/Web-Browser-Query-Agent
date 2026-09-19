@@ -82,6 +82,9 @@ def test_memo_ignores_case_and_spacing(cache, fake_llm):
 
 def test_a_degraded_verdict_is_not_memoized(cache, monkeypatch):
     """Otherwise a transient outage would poison the memo for an hour."""
+    # Opts past the suite-wide LLM isolation: this test needs a live chain in
+    # its second half to prove the verdict is re-derived rather than replayed.
+    monkeypatch.setattr(config, "LLM_DISABLED", False)
     P.set_chain([])
     router.clear_memo()
     query = "thoughts on the new framework everyone mentions"

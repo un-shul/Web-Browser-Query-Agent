@@ -1,213 +1,73 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Query Summarizer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .loader {
-            border-top-color: #3b82f6;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .progress-bar {
-            transition: width 0.3s ease;
-        }
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-    </style>
-</head>
-<body class="bg-gray-100 min-h-screen p-4">
-    <div class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold text-center my-6 text-blue-600">Query Summarizer</h1>
-        
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <form id="searchForm" class="mb-4">
-                <div class="flex">
-                    <input type="text" id="queryInput" 
-                           class="flex-grow px-4 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                           placeholder="Ask anything..." required>
-                    <button type="submit" id="searchButton"
-                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-r-lg">
-                        Search
-                    </button>
-                </div>
-            </form>
-            
-            <!-- Progress Section -->
-            <div id="progressSection" class="hidden mb-6">
-                <div class="mb-2">
-                    <div class="flex justify-between text-sm text-gray-600">
-                        <span id="progressText">Processing...</span>
-                        <span id="progressPercent">0%</span>
-                    </div>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                    <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full progress-bar" style="width: 0%"></div>
-                </div>
-                <div id="stageIndicator" class="mt-2 text-sm text-gray-500 flex items-center">
-                    <div class="loader rounded-full h-4 w-4 border-2 border-t-2 border-gray-200 mr-2"></div>
-                    <span id="currentStage">Starting...</span>
-                </div>
-            </div>
-            
-            <div id="result" class="hidden">
-                <div class="flex items-center justify-between mb-4">
-                    <div class="flex items-center">
-                        <h2 class="text-xl font-semibold">Summary</h2>
-                        <span id="cacheTag" class="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full hidden">
-                            Cached
-                        </span>
-                    </div>
-                    <div id="processingStats" class="text-sm text-gray-600 hidden">
-                        <span id="pagesScraped" class="mr-4"></span>
-                        <span id="contentLength"></span>
-                    </div>
-                </div>
-                
-                <div id="summary" class="bg-gray-50 p-4 rounded border border-gray-200 mb-4 whitespace-pre-line"></div>
-            </div>
-            
-            <div id="error" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mt-4"></div>
-        </div>
-    </div>
+{% extends "base.html" %}
+{% block title %}Query Agent{% endblock %}
 
-    <script>
-        const form = document.getElementById('searchForm');
-        const searchButton = document.getElementById('searchButton');
-        const resultDiv = document.getElementById('result');
-        const progressSection = document.getElementById('progressSection');
-        const errorDiv = document.getElementById('error');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
-        const progressPercent = document.getElementById('progressPercent');
-        const currentStage = document.getElementById('currentStage');
-        
-        let eventSource = null;
-        
-        function resetUI() {
-            resultDiv.classList.add('hidden');
-            errorDiv.classList.add('hidden');
-            progressSection.classList.add('hidden');
-            progressBar.style.width = '0%';
-            progressPercent.textContent = '0%';
-        }
-        
-        function showError(message) {
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('hidden');
-            progressSection.classList.add('hidden');
-            searchButton.disabled = false;
-            searchButton.textContent = 'Search';
-        }
-        
-        function updateProgress(progress, message, stage) {
-            progressBar.style.width = progress + '%';
-            progressPercent.textContent = progress + '%';
-            progressText.textContent = message;
-            currentStage.textContent = stage || message;
-        }
-        
-        function showResult(data) {
-            document.getElementById('summary').textContent = data.summary;
-            
-            const cacheTag = document.getElementById('cacheTag');
-            if (data.is_cached) {
-                cacheTag.textContent = `Cached (${Math.round((data.similarity || 0) * 100)}% match)`;
-                cacheTag.classList.remove('hidden');
-            } else {
-                cacheTag.classList.add('hidden');
-            }
-            
-            const statsDiv = document.getElementById('processingStats');
-            const pagesSpan = document.getElementById('pagesScraped');
-            const contentSpan = document.getElementById('contentLength');
-            
-            if (data.pages_scraped !== undefined) {
-                pagesSpan.textContent = `📄 ${data.pages_scraped} pages scraped`;
-                contentSpan.textContent = `📝 ${data.total_content_length?.toLocaleString()} chars processed`;
-                statsDiv.classList.remove('hidden');
-            }
-            
-            resultDiv.classList.remove('hidden');
-            progressSection.classList.add('hidden');
-            searchButton.disabled = false;
-            searchButton.textContent = 'Search';
-        }
-        
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const query = document.getElementById('queryInput').value.trim();
-            if (!query) return;
-            
-            // Reset UI and show progress
-            resetUI();
-            progressSection.classList.remove('hidden');
-            searchButton.disabled = true;
-            searchButton.textContent = 'Processing...';
-            
-            // Close existing EventSource if any
-            if (eventSource) {
-                eventSource.close();
-            }
-            
-            // Start Server-Sent Events with query parameter
-            eventSource = new EventSource(`/search_progress?query=${encodeURIComponent(query)}`);
-            
-            eventSource.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.stage === 'error') {
-                        showError(data.message);
-                        eventSource.close();
-                    } else if (data.stage === 'complete') {
-                        updateProgress(100, 'Complete!', 'Finished');
-                        setTimeout(() => showResult(data), 500);
-                        eventSource.close();
-                    } else {
-                        // Update progress for various stages
-                        const stageMessages = {
-                            'validating': '🔍 Validating query...',
-                            'cache': '💾 Checking cache...',
-                            'searching': '🌐 Searching DuckDuckGo...',
-                            'found': '✅ Search complete',
-                            'scraping': '📄 ' + data.message,
-                            'summarizing': '✂️ Creating summary...',
-                            'caching': '💾 Saving result...'
-                        };
-                        
-                        const stageText = stageMessages[data.stage] || data.message;
-                        updateProgress(data.progress, data.message, stageText);
-                    }
-                } catch (error) {
-                    console.error('Error parsing SSE data:', error);
-                }
-            };
-            
-            eventSource.onerror = function(event) {
-                console.error('SSE error:', event);
-                showError('Connection error. Please try again.');
-                eventSource.close();
-            };
-        });
-        
-        // Clean up EventSource when page is closed
-        window.addEventListener('beforeunload', function() {
-            if (eventSource) {
-                eventSource.close();
-            }
-        });
-    </script>
-</body>
-</html>
+{% block content %}
+<section class="hero">
+  <h1>A cached answer, only if it is still true.</h1>
+  <p>
+    Answers come from a semantic cache &mdash; but every entry knows how fast it
+    goes stale, and a verifier has to agree that a near-match really answers
+    your question.
+  </p>
+</section>
+
+<form class="search" id="searchForm" autocomplete="off">
+  <input type="text" id="queryInput" placeholder="what is photosynthesis" required
+         aria-label="Search query">
+  <button class="btn" type="submit" id="searchButton">Search</button>
+</form>
+
+<div class="opts">
+  <label>
+    <input type="checkbox" id="forceRefresh">
+    Bypass cache
+  </label>
+  <span id="backendNote" class="hidden"></span>
+</div>
+
+<div class="examples" id="examples">
+  <button class="chip" type="button">what is photosynthesis</button>
+  <button class="chip" type="button">live cricket score india vs australia</button>
+  <button class="chip" type="button">latest ai news</button>
+  <button class="chip" type="button">best laptops for programming</button>
+</div>
+
+<div id="alert" class="alert hidden" role="alert"></div>
+
+<div class="card hidden" id="progressCard">
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="stages" id="stages" aria-live="polite"></div>
+</div>
+
+<div id="result" class="hidden">
+  <div class="badges" id="badges"></div>
+
+  <details class="trace" id="traceBox">
+    <summary>Decision trace</summary>
+    <div class="trace-body" id="traceBody"></div>
+  </details>
+
+  <div class="card">
+    <h2>Answer</h2>
+    <div class="summary" id="summary"></div>
+    <div class="summary-actions">
+      <button class="btn-ghost" type="button" id="copyBtn">Copy</button>
+      <button class="btn-ghost" type="button" id="refreshBtn">Re-run without cache</button>
+    </div>
+  </div>
+
+  <div class="card hidden" id="sourcesCard">
+    <h2>Sources</h2>
+    <div class="sources" id="sources"></div>
+  </div>
+</div>
+
+<div class="card hidden" id="historyCard">
+  <h2>Recent</h2>
+  <div class="history" id="history"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

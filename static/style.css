@@ -1,0 +1,401 @@
+/* Web Browser Query Agent -- design system.
+ *
+ * Hand-rolled rather than a Tailwind CDN: the Play CDN ships ~3MB of JS and
+ * logs a production warning in the console, which is visible to anyone who
+ * opens devtools on the deployed site.
+ *
+ * Data-visualisation colours come from a validated palette. The volatility
+ * ramp is ordinal (static < slow < dynamic < realtime is an ordered scale, not
+ * unordered identity), so it is one hue with monotone lightness. Accept/reject
+ * uses status colours, which fail CVD separation by design (green/red measure
+ * deltaE 4.1 for deuteranopia) -- so every one of them also carries an icon and
+ * a text label. Colour never carries that meaning alone.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --surface-0: #0d0d0d;   /* page plane */
+  --surface-1: #1a1a19;   /* cards */
+  --surface-2: #232322;   /* raised */
+  --surface-3: #2c2c2a;   /* hairline / inset */
+
+  --ink-1: #ffffff;
+  --ink-2: #c3c2b7;
+  --ink-3: #898781;
+
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: #383835;
+
+  --accent: #3987e5;
+  --accent-dim: #1c5cab;
+
+  /* Ordinal volatility ramp -- validated on #1a1a19: monotone lightness,
+   * all adjacent gaps >= 0.06, light end 3.94:1 vs surface, hue spread 2deg. */
+  --vol-static:   #b7d3f6;
+  --vol-slow:     #86b6ef;
+  --vol-dynamic:  #5598e7;
+  --vol-realtime: #2a78d6;
+
+  /* Status -- fixed, never themed. Always paired with an icon + label. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface-0: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --surface-2: #f2f1ee;
+  --surface-3: #e1e0d9;
+  --ink-1: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #898781;
+  --line: rgba(11, 11, 11, 0.10);
+  --line-strong: #c3c2b7;
+  --accent: #2a78d6;
+  --accent-dim: #184f95;
+  /* Light-mode ordinal steps: no lighter than step 250, so the light end
+   * still clears 2:1 against the light surface (validated at 2.06:1). */
+  --vol-static:   #86b6ef;
+  --vol-slow:     #5598e7;
+  --vol-dynamic:  #2a78d6;
+  --vol-realtime: #1c5cab;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--surface-0);
+  color: var(--ink-1);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+
+/* --- header --- */
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 0 28px;
+}
+.brand { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.brand span { color: var(--ink-3); font-weight: 400; }
+.topbar nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+
+.btn-ghost {
+  background: none; border: 1px solid transparent; color: var(--ink-2);
+  font: inherit; font-size: 13px; padding: 6px 10px;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink-1); }
+.btn-ghost[aria-current="page"] { color: var(--ink-1); background: var(--surface-2); }
+
+/* --- search --- */
+
+.hero { margin-bottom: 8px; }
+.hero h1 {
+  font-size: 28px; line-height: 1.25; margin: 0 0 8px;
+  letter-spacing: -0.02em; font-weight: 650;
+}
+.hero p { color: var(--ink-2); margin: 0 0 24px; font-size: 15px; max-width: 60ch; }
+
+form.search { display: flex; gap: 8px; margin-bottom: 10px; }
+.search input[type="text"] {
+  flex: 1; min-width: 0;
+  background: var(--surface-1); border: 1px solid var(--line);
+  color: var(--ink-1); font: inherit; font-size: 15px;
+  padding: 11px 14px; border-radius: var(--radius);
+}
+.search input::placeholder { color: var(--ink-3); }
+.search input:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent;
+}
+.btn {
+  background: var(--accent); border: none; color: #fff;
+  font: inherit; font-size: 15px; font-weight: 550;
+  padding: 11px 20px; border-radius: var(--radius); cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--accent-dim); }
+.btn:disabled { opacity: 0.55; cursor: default; }
+
+.opts {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-2); margin-bottom: 22px;
+}
+.opts label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.opts input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.examples { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
+.chip {
+  background: var(--surface-1); border: 1px solid var(--line);
+  color: var(--ink-2); font: inherit; font-size: 12.5px;
+  padding: 5px 11px; border-radius: 999px; cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); color: var(--ink-1); }
+
+/* --- cards --- */
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px;
+}
+.card > h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-3); margin: 0 0 14px; font-weight: 600;
+}
+
+/* --- progress --- */
+
+.progress-track {
+  height: 3px; background: var(--surface-3);
+  border-radius: 999px; overflow: hidden; margin-bottom: 12px;
+}
+.progress-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 999px; width: 0%; transition: width 0.3s ease;
+}
+.stages { display: flex; flex-direction: column; gap: 7px; }
+.stage {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 13.5px; color: var(--ink-3);
+}
+.stage .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--surface-3); flex: none; margin-top: 6px;
+}
+.stage.done { color: var(--ink-2); }
+.stage.done .dot { background: var(--good); }
+.stage.active { color: var(--ink-1); }
+.stage.active .dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* --- badges --- */
+
+.badges { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 550;
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
+}
+.badge .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.badge.vol-static   .swatch { background: var(--vol-static); }
+.badge.vol-slow     .swatch { background: var(--vol-slow); }
+.badge.vol-dynamic  .swatch { background: var(--vol-dynamic); }
+.badge.vol-realtime .swatch { background: var(--vol-realtime); }
+.badge.vol-unknown  .swatch { background: var(--ink-3); }
+
+/* Status badges carry an icon and a word. The palette validator measures
+ * green vs red at deltaE 4.1 under deuteranopia, so colour alone is not
+ * legible for every reader -- the glyph and the label are the real signal. */
+.badge.good     { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.badge.critical { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); }
+.badge.warning  { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+
+/* --- summary --- */
+
+.summary { font-size: 15.5px; color: var(--ink-1); }
+.summary p { margin: 0 0 12px; }
+.summary p:last-child { margin-bottom: 0; }
+.summary ul, .summary ol { margin: 0 0 12px; padding-left: 22px; }
+.summary li { margin-bottom: 5px; }
+.summary code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+}
+.summary strong { font-weight: 650; }
+.summary h1, .summary h2, .summary h3 { font-size: 1.05em; margin: 16px 0 8px; }
+
+.summary-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+/* --- sources --- */
+
+.sources { display: flex; flex-direction: column; gap: 2px; }
+.source {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 9px 10px; border-radius: var(--radius-sm);
+  margin: 0 -10px; text-decoration: none;
+}
+.source:hover { background: var(--surface-2); text-decoration: none; }
+/* An initial rather than a fetched favicon: no third-party request, nothing
+ * to fail, and no leaking every visited domain to an icon service. */
+.source .favicon {
+  width: 18px; height: 18px; border-radius: 4px; flex: none; margin-top: 2px;
+  background: var(--surface-3); color: var(--ink-2);
+  font-size: 10.5px; font-weight: 650; line-height: 18px; text-align: center;
+}
+.source .meta { min-width: 0; flex: 1; }
+.source .title {
+  font-size: 14px; color: var(--ink-1); font-weight: 500;
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.source .host { font-size: 12px; color: var(--ink-3); }
+.source .via {
+  font-size: 11px; color: var(--ink-3); font-family: var(--mono);
+  flex: none; margin-top: 4px;
+}
+
+/* --- decision trace --- */
+
+details.trace { margin-bottom: 14px; }
+details.trace > summary {
+  cursor: pointer; list-style: none;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-3); font-weight: 600;
+  padding: 10px 0; display: flex; align-items: center; gap: 8px;
+}
+details.trace > summary::-webkit-details-marker { display: none; }
+details.trace > summary::before {
+  content: "›"; display: inline-block; transition: transform 0.15s;
+  font-size: 15px; line-height: 1;
+}
+details.trace[open] > summary::before { transform: rotate(90deg); }
+
+.trace-body {
+  border-left: 2px solid var(--surface-3);
+  padding-left: 16px; margin-left: 4px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.trace-step { font-size: 13.5px; }
+.trace-step .label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-3); font-weight: 600; margin-bottom: 5px;
+}
+.trace-step .detail { color: var(--ink-2); }
+.trace-step .detail em { color: var(--ink-1); font-style: normal; font-weight: 550; }
+
+/* Similarity meter: sequential single hue, magnitude only. The accept/reject
+ * state sits beside it as an icon + label, not as a colour on the bar. */
+.cands { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; }
+.cand { font-size: 13px; }
+.cand .row {
+  display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px;
+}
+.cand .q {
+  color: var(--ink-2); min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cand .score {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-1);
+  font-variant-numeric: tabular-nums; flex: none;
+}
+.meter {
+  height: 4px; background: var(--surface-3);
+  border-radius: 999px; overflow: hidden;
+}
+.meter > i {
+  display: block; height: 100%;
+  background: var(--accent);
+  /* 4px rounded data-end, anchored to the baseline at 0 */
+  border-radius: 0 4px 4px 0;
+}
+/* The meter stays one hue: it encodes similarity, a magnitude. Whether a
+ * candidate was reused is a state, carried by the glyph and the word beside
+ * it -- green and red measure deltaE 4.1 apart under deuteranopia, so colour
+ * cannot be the only signal. */
+.cand.is-chosen .q { color: var(--ink-1); }
+.cand .pick, .cand .drop {
+  flex: none; font-size: 11px; font-weight: 600;
+}
+.cand .pick { color: var(--good); }
+.cand .drop { color: var(--ink-3); }
+
+/* --- stat tiles: headline numbers, deliberately not a chart --- */
+
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px; margin-bottom: 14px;
+}
+.tile {
+  background: var(--surface-1); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 16px;
+}
+.tile .v { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.tile .k {
+  font-size: 11.5px; color: var(--ink-3); text-transform: uppercase;
+  letter-spacing: 0.06em; margin-top: 3px; font-weight: 550;
+}
+
+/* Volatility breakdown: ordinal ramp, direct-labelled, so no legend box. */
+.vol-bars { display: flex; flex-direction: column; gap: 8px; }
+.vol-bar { display: grid; grid-template-columns: 74px 1fr 34px; align-items: center; gap: 10px; font-size: 13px; }
+.vol-bar .name { color: var(--ink-2); }
+.vol-bar .track { height: 8px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.vol-bar .track > i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.vol-bar .n {
+  font-family: var(--mono); font-size: 12px; text-align: right;
+  color: var(--ink-1); font-variant-numeric: tabular-nums;
+}
+
+/* --- cache table --- */
+
+.entries { display: flex; flex-direction: column; gap: 8px; }
+.entry {
+  background: var(--surface-1); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 13px 16px;
+}
+.entry.expired { opacity: 0.6; }
+.entry .top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; }
+.entry .q { font-size: 14.5px; font-weight: 550; flex: 1; min-width: 0; }
+.entry .s { font-size: 13px; color: var(--ink-2); }
+.entry .foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 9px; font-size: 11.5px; color: var(--ink-3);
+}
+.entry .foot .sep { color: var(--line-strong); }
+
+/* --- misc --- */
+
+.alert {
+  border-radius: var(--radius); padding: 13px 16px; margin-bottom: 14px;
+  font-size: 14px; display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--critical) 35%, transparent);
+  background: color-mix(in srgb, var(--critical) 9%, var(--surface-1));
+  color: var(--ink-1);
+}
+.alert.warning {
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface-1));
+}
+.alert .ico { flex: none; }
+
+.empty { color: var(--ink-3); font-size: 14px; text-align: center; padding: 34px 20px; }
+.hidden { display: none !important; }
+
+.history { display: flex; flex-direction: column; gap: 1px; }
+.history button {
+  background: none; border: none; color: var(--ink-2); font: inherit;
+  font-size: 13.5px; text-align: left; padding: 7px 10px; margin: 0 -10px;
+  border-radius: var(--radius-sm); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history button:hover { background: var(--surface-2); color: var(--ink-1); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 560px) {
+  .hero h1 { font-size: 23px; }
+  form.search { flex-direction: column; }
+  .vol-bar { grid-template-columns: 62px 1fr 30px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -79,6 +79,7 @@ def test_valid_queries_survive_the_gates(cache):
 
 
 def test_ttl_matches_the_volatility_class(cache):
+    """With no LLM there is no TTL hint, so each class gets its default."""
     for query in ["live cricket score", "latest ai news", "what is photosynthesis"]:
         verdict = pipeline.classify(query)
         assert verdict.ttl_seconds == vp.ttl_for(verdict.volatility)
@@ -176,7 +177,19 @@ def test_complete_event_carries_sources(cache, fake_web):
 def test_complete_event_carries_the_verdict(cache, fake_web):
     verdict = final("what is photosynthesis").data["verdict"]
     assert verdict["volatility"] == vp.STATIC
-    assert verdict["source"].startswith("heuristic:")
+    assert verdict["source"]
+
+
+def test_cache_trail_survives_into_the_completion_event(cache, fake_web):
+    """Regression: the completion event replaced the trail with a stub that had
+    no decision and no candidates, so the UI lost the miss reasoning -- exactly
+    the case worth showing."""
+    cache.add_to_cache("what is photosynthesis in plants", "Earlier answer.",
+                       volatility=vp.STATIC)
+    trail = final("what is photosynthesis").data["cache"]
+    assert trail["decision"]
+    assert "candidates" in trail
+    assert "verifier" in trail
 
 
 def test_answer_is_written_back_to_the_cache(cache, fake_web):

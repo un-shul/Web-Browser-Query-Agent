@@ -23,6 +23,12 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
+# Jinja ties template auto-reload to debug mode, so with debug off an edited
+# template keeps serving from the compiled cache until restart. Harmless in
+# production, confusing in development.
+app.config["TEMPLATES_AUTO_RELOAD"] = config.FLASK_DEBUG or bool(
+    os.environ.get("TEMPLATES_AUTO_RELOAD")
+)
 
 
 def _sse(payload: dict) -> str:
@@ -32,6 +38,12 @@ def _sse(payload: dict) -> str:
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+@app.route("/cache")
+def cache_page():
+    """Cache explorer. The /cache-* endpoints predate this and had no UI."""
+    return render_template("cache.html")
 
 
 @app.route("/search_progress")

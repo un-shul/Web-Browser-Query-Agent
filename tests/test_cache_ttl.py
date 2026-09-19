@@ -302,3 +302,28 @@ def test_delete_by_query(cache):
     cache.add_to_cache("photosynthesis basics", "S", volatility=vp.STATIC)
     assert cc.delete_cache_by_query("photosynthesis") == 1
     assert cache.get_cache_stats()["total_queries"] == 0
+
+
+def test_rewriting_the_same_query_updates_rather_than_duplicates(cache):
+    """Regression: a force-refresh appended a second row for the same
+    question, so re-running a query grew the cache without bound."""
+    first = cache.add_to_cache("what is photosynthesis", "First answer.",
+                               volatility=vp.STATIC)
+    second = cache.add_to_cache("what is photosynthesis", "Second answer.",
+                                volatility=vp.STATIC)
+    assert first == second
+    assert cache.get_cache_stats()["total_queries"] == 1
+    fresh, _ = cache.find_similar_candidates("what is photosynthesis", floor=0.9)
+    assert fresh[0].summary == "Second answer."
+
+
+def test_exact_match_ignores_case_and_spacing(cache):
+    a = cache.add_to_cache("What Is  Photosynthesis", "A", volatility=vp.STATIC)
+    b = cache.add_to_cache("what is photosynthesis", "B", volatility=vp.STATIC)
+    assert a == b
+
+
+def test_different_queries_still_get_their_own_rows(cache):
+    cache.add_to_cache("what is photosynthesis", "A", volatility=vp.STATIC)
+    cache.add_to_cache("what is respiration", "B", volatility=vp.STATIC)
+    assert cache.get_cache_stats()["total_queries"] == 2

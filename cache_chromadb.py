@@ -141,14 +141,28 @@ def _normalize_meta(meta: Optional[Dict[str, Any]], migration_epoch: int) -> Dic
     }
 
 
-def _decode_urls(raw: Any) -> List[str]:
-    if isinstance(raw, list):
-        return [str(u) for u in raw]
-    try:
-        loaded = json.loads(raw or "[]")
-        return [str(u) for u in loaded] if isinstance(loaded, list) else []
-    except (ValueError, TypeError):
+def _decode_urls(raw: Any) -> List[Any]:
+    """Decode stored sources.
+
+    Entries written before titles were captured hold a list of bare URL
+    strings; newer ones hold {"url", "title"} objects. Both are returned as
+    given, and the UI handles either shape.
+    """
+    loaded = raw if isinstance(raw, list) else None
+    if loaded is None:
+        try:
+            loaded = json.loads(raw or "[]")
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(loaded, list):
         return []
+    out: List[Any] = []
+    for item in loaded:
+        if isinstance(item, dict) and item.get("url"):
+            out.append({"url": str(item["url"]), "title": str(item.get("title") or "")})
+        elif isinstance(item, str):
+            out.append(item)
+    return out
 
 
 class ChromaDBCache:
@@ -298,7 +312,7 @@ class ChromaDBCache:
         volatility: str = vp.DEFAULT_VOLATILITY,
         ttl_seconds: Optional[int] = None,
         canonical_query: Optional[str] = None,
-        source_urls: Optional[Sequence[str]] = None,
+        source_urls: Optional[Sequence[Any]] = None,
         router_source: str = "",
         embedding: Optional[Sequence[float]] = None,
     ) -> Optional[str]:
@@ -315,9 +329,13 @@ class ChromaDBCache:
             log.warning("could not embed for cache write: %s", exc)
             return None
 
-        entry_id = str(uuid.uuid4())
+        # Reuse the row for an identical question instead of adding a second
+        # one. A force-refresh or a re-run otherwise appends a near-duplicate
+        # every time, so the cache grows without bound and the explorer shows
+        # the same query repeatedly.
+        entry_id = self._find_exact(query) or str(uuid.uuid4())
         try:
-            self.collection.add(
+            self.collection.upsert(
                 ids=[entry_id],
                 embeddings=[vector],
                 documents=[query],
@@ -341,6 +359,21 @@ class ChromaDBCache:
 
         log.info("cached %r as %s (ttl %ds)", query[:50], volatility, ttl)
         return entry_id
+
+    def _find_exact(self, query: str) -> Optional[str]:
+        """Existing entry id for this exact question, if any."""
+        wanted = " ".join((query or "").strip().lower().split())
+        try:
+            got = self.collection.get()
+        except Exception:
+            return None
+        for i, entry_id in enumerate(got.get("ids") or []):
+            if entry_id == _MIGRATION_EPOCH_KEY:
+                continue
+            doc = (got.get("documents") or [""])[i] or ""
+            if " ".join(doc.strip().lower().split()) == wanted:
+                return entry_id
+        return None
 
     def touch(self, entry_id: str) -> None:
         """Record a cache hit. Best-effort; never raises."""

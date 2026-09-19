@@ -165,8 +165,10 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
     # --- cache ---
     if force_refresh:
         trail = {"hit": False, "decision": "force refresh requested", "candidates": [],
-                 "expired_skipped": 0, "sources": []}
+                 "expired_skipped": 0, "sources": [], "llm_calls": 0, "verifier": "bypassed",
+                 "reason": "force refresh requested", "degraded": False}
         yield ProgressEvent("cache", "Bypassing cache (force refresh)", 18, {"cache": trail})
+        cache_trail = trail
     else:
         yield ProgressEvent("cache", "Checking the cache...", 15)
         trail = lookup_cache(query, verdict, embedding)
@@ -179,6 +181,7 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
             )
             return
         yield ProgressEvent("cache_miss", trail["decision"], 18, {"cache": trail})
+    cache_trail = trail
 
     # --- search ---
     yield ProgressEvent("searching", "Searching the web...", 25)
@@ -220,7 +223,7 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
         query, summary,
         volatility=verdict.volatility,
         ttl_seconds=verdict.ttl_seconds,
-        source_urls=[p.url for p in pages],
+        source_urls=[{'url': p.url, 'title': p.title} for p in pages],
         router_source=verdict.source,
         embedding=embedding,
     )
@@ -230,7 +233,7 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
         {"summary": summary, "is_cached": False, "sources": sources,
          "pages_scraped": len(pages), "total_content_length": len(combined),
          "verdict": asdict(verdict), "cached_as": entry_id,
-         "cache": {"hit": False, "stored": entry_id is not None}},
+         "cache": dict(cache_trail, stored=entry_id is not None)},
     )
 
 
