@@ -11,7 +11,7 @@ import config
 from agent import is_junk
 from cache_chromadb import add_to_cache, find_similar_query, get_cache_stats
 from summarizer import summarize_text
-from web_search import scrape_page, search_duckduckgo
+from web_search import SearchError, fetch_contents, search
 
 app = Flask(__name__)
 
@@ -37,31 +37,33 @@ def web_process_query_with_progress(query):
                 return
             
             # Step 3: Search the web
-            yield f"data: {json.dumps({'stage': 'searching', 'message': 'Searching DuckDuckGo...', 'progress': 15})}\n\n"
-            
-            urls = search_duckduckgo(query)
-            if not urls:
+            yield f"data: {json.dumps({'stage': 'searching', 'message': 'Searching the web...', 'progress': 15})}\n\n"
+
+            try:
+                bundle = search(query)
+            except SearchError as exc:
+                yield f"data: {json.dumps({'stage': 'error', 'message': str(exc), 'progress': 0})}\n\n"
+                return
+
+            if not bundle.results:
                 yield f"data: {json.dumps({'stage': 'error', 'message': 'No search results found. Please try a different query.', 'progress': 0})}\n\n"
                 return
-            
-            yield f"data: {json.dumps({'stage': 'found', 'message': f'Found {len(urls)} results', 'progress': 25})}\n\n"
-            
-            # Step 4: Scrape pages with progress
-            contents = []
-            total_pages = min(len(urls), 5)
-            
-            for i, url in enumerate(urls[:5], 1):
-                progress = 25 + (i * 10)  # 25% to 75%
-                yield f"data: {json.dumps({'stage': 'scraping', 'message': f'Scraping page {i}/{total_pages}', 'progress': progress})}\n\n"
-                
-                content = scrape_page(url)
-                if content:
-                    contents.append(content[:5000])
-                time.sleep(1)
-            
-            if not contents:
+
+            yield f"data: {json.dumps({'stage': 'found', 'message': f'Found {len(bundle.results)} results', 'progress': 25})}\n\n"
+
+            # Step 4: Fetch pages. Concurrent, so progress is a single step
+            # rather than a per-page countdown.
+            yield f"data: {json.dumps({'stage': 'scraping', 'message': f'Reading {len(bundle.results)} pages...', 'progress': 40})}\n\n"
+
+            pages = fetch_contents(bundle.results)
+            if not pages:
                 yield f"data: {json.dumps({'stage': 'error', 'message': 'Could not extract content from any pages. Please try again.', 'progress': 0})}\n\n"
                 return
+
+            sources = [{'url': p.url, 'title': p.title, 'via': p.via} for p in pages]
+            yield f"data: {json.dumps({'stage': 'read', 'message': f'Read {len(pages)} pages', 'progress': 75, 'sources': sources})}\n\n"
+
+            contents = [p.text[:5000] for p in pages]
             
             # Step 5: Summarize
             yield f"data: {json.dumps({'stage': 'summarizing', 'message': 'Summarizing content...', 'progress': 80})}\n\n"
@@ -74,7 +76,7 @@ def web_process_query_with_progress(query):
             add_to_cache(query, summary)
             
             # Complete
-            yield f"data: {json.dumps({'stage': 'complete', 'message': 'Summary ready!', 'progress': 100, 'summary': summary, 'is_cached': False, 'pages_scraped': len(contents), 'total_content_length': len(combined)})}\n\n"
+            yield f"data: {json.dumps({'stage': 'complete', 'message': 'Summary ready!', 'progress': 100, 'summary': summary, 'is_cached': False, 'pages_scraped': len(contents), 'total_content_length': len(combined), 'sources': sources})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'stage': 'error', 'message': f'An error occurred: {str(e)}', 'progress': 0})}\n\n"
@@ -118,20 +120,20 @@ def search():
             })
         
         # Search and process
-        urls = search_duckduckgo(query)
-        if not urls:
+        try:
+            bundle = search(query)
+        except SearchError as exc:
+            return jsonify({'error': str(exc)}), 502
+
+        if not bundle.results:
             return jsonify({'error': 'No search results found. Please try a different query.'}), 400
-        
-        # Scrape pages
-        contents = []
-        for url in urls[:5]:
-            content = scrape_page(url)
-            if content:
-                contents.append(content[:5000])
-            time.sleep(1)
-        
-        if not contents:
+
+        pages = fetch_contents(bundle.results)
+        if not pages:
             return jsonify({'error': 'Could not extract content from any pages. Please try again.'}), 400
+
+        sources = [{'url': p.url, 'title': p.title, 'via': p.via} for p in pages]
+        contents = [p.text[:5000] for p in pages]
         
         # Summarize
         combined = "\n\n".join(contents)
@@ -144,7 +146,8 @@ def search():
             'summary': summary,
             'is_cached': False,
             'pages_scraped': len(contents),
-            'total_content_length': len(combined)
+            'total_content_length': len(combined),
+            'sources': sources,
         })
         
     except Exception as e:
