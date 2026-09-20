@@ -4,6 +4,14 @@ ROUTER_SCHEMA = {
     "type": "object",
     "properties": {
         "valid": {"type": "boolean"},
+        # Carried in the same call as validity and volatility, so refusing a
+        # query costs no additional request.
+        "refuse": {"type": "boolean"},
+        "refuse_category": {
+            "type": "string",
+            "enum": ["none", "explicit", "harm_instructions", "csam",
+                     "self_harm", "other"],
+        },
         "intent": {
             "type": "string",
             "enum": ["information_seeking", "navigation", "command", "chitchat", "gibberish"],
@@ -21,10 +29,10 @@ ROUTER_SCHEMA = {
         "confidence": {"type": "number"},
         "reason": {"type": "string"},
     },
-    "required": ["valid", "intent", "volatility", "confidence", "reason"],
+    "required": ["valid", "refuse", "intent", "volatility", "confidence", "reason"],
     "propertyOrdering": [
-        "valid", "intent", "volatility", "ttl_hint_seconds",
-        "search_query", "topic", "confidence", "reason",
+        "valid", "refuse", "refuse_category", "intent", "volatility",
+        "ttl_hint_seconds", "search_query", "topic", "confidence", "reason",
     ],
 }
 

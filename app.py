@@ -90,6 +90,9 @@ def search():
 
     force = str(request.form.get("refresh", "")).lower() in {"1", "true", "yes"}
     result = pipeline.run(query, force_refresh=force)
+    if result.get("refused"):
+        # 403, not 400: the query was understood and declined, not malformed.
+        return jsonify(result), 403
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)

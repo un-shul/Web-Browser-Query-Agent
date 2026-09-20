@@ -247,6 +247,39 @@ STEP 8  Write back
         is stored.
 ```
 
+### Refusal
+
+Some queries are declined rather than answered, and nothing about them reaches
+the cache. Two layers, mirroring how volatility is decided:
+
+1. **A narrow deterministic check** (`queryagent/safety.py`), run before
+   anything is embedded or looked up. Free.
+2. **The router's own judgement**, carried in the call it already makes — so
+   the LLM layer costs no extra request.
+
+Categories: explicit material, instructions for weapons/drugs/harming a
+person, anything sexualising minors, and methods of self-harm. Self-harm gets
+a different response — a helpline rather than a flat refusal.
+
+**The hard constraint is false positives, not coverage.** A blocklist wide
+enough to catch every phrasing also refuses "breast cancer symptoms", "how
+does HIV spread" and "civilian casualties in Gaza" — legitimate questions, and
+the kind of refusal that makes a tool feel broken. So the deterministic layer
+matches only requests *for* explicit material or *for* actionable
+instructions, and stands down entirely when the query carries clinical,
+educational, legal or news framing. Anything ambiguous goes to the router.
+
+Measured: 23 legitimate queries all answered, 14 refusals all caught. The two
+layers are complementary — for "write me an explicit story", "where can I find
+adult content" and "steps to produce a nerve agent" the regex passes and the
+router refuses, while "what is the plot of Lolita by Nabokov" is correctly
+allowed by both.
+
+A refusal is **not** an error: it returns HTTP 403 rather than 400 from
+`/search`, gets its own SSE stage, and uses the UI's warning styling rather
+than the red error box — a failure implies the user should retry, and here
+they shouldn't.
+
 ### Volatility classes and TTLs
 
 | Class | Default TTL | Min | Max | Example |

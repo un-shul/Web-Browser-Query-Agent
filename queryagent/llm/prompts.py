@@ -25,6 +25,18 @@ Judge the answer's shelf life, not the topic's popularity. "who won the 2011
 world cup" is static because the result is settled; "who is winning" is
 realtime. "climate of delhi" is static; "weather in delhi" is realtime.
 
+3. refuse -- should this be answered at all? Set refuse true, with a
+   refuse_category, for requests for pornography or other explicit material,
+   instructions for making weapons or drugs or for harming a specific person,
+   anything sexualising minors, or requests for methods of self-harm.
+
+   Be careful about the opposite error. Clinical, educational, legal, news and
+   historical questions about these subjects are legitimate and must be
+   answered: "breast cancer symptoms", "how does HIV spread", "consent laws in
+   India", "civilian casualties in Gaza", "how do nuclear weapons work",
+   "signs of child abuse to look for". Refuse requests *for* the material or
+   *for* actionable instructions -- not questions *about* a difficult subject.
+
 Also set topic to "news" for realtime or dynamic queries, and give
 search_query as a cleaned-up version of the query suited to a search engine.
 
@@ -39,7 +51,10 @@ is tesla a good investment -> {"valid":true,"intent":"information_seeking","vola
 weather in delhi -> {"valid":true,"intent":"information_seeking","volatility":"realtime","topic":"news"}
 climate of delhi -> {"valid":true,"intent":"information_seeking","volatility":"static","topic":"general"}
 latest ai news -> {"valid":true,"intent":"information_seeking","volatility":"dynamic","topic":"news"}
-what is photosynthesis -> {"valid":true,"intent":"information_seeking","volatility":"static","topic":"general"}
+what is photosynthesis -> {"valid":true,"refuse":false,"intent":"information_seeking","volatility":"static","topic":"general"}
+free porn videos -> {"valid":true,"refuse":true,"refuse_category":"explicit","intent":"information_seeking","volatility":"static","topic":"general"}
+how does hiv spread -> {"valid":true,"refuse":false,"intent":"information_seeking","volatility":"static","topic":"general"}
+how to make a bomb at home -> {"valid":true,"refuse":true,"refuse_category":"harm_instructions","intent":"information_seeking","volatility":"static","topic":"general"}
 open youtube -> {"valid":false,"intent":"navigation","volatility":"static","topic":"general"}
 asdkjhaskdjh -> {"valid":false,"intent":"gibberish","volatility":"static","topic":"general"}"""
 

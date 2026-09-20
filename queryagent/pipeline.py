@@ -19,6 +19,7 @@ from queryagent import classifier
 from queryagent import cache as cache
 from queryagent import config
 from queryagent import embeddings
+from queryagent import safety
 from queryagent import volatility as vp
 from queryagent.llm import reranker, router
 from queryagent.search import SearchError, fetch_contents, search
@@ -37,6 +38,11 @@ class QueryVerdict:
     time_range: Optional[str] = None
     reason: str = ""
     source: str = ""  # gate | lr | heuristic:<rule> | llm | memo(...) | default
+    # A refused query is understood and declined, as opposed to invalid, which
+    # means malformed. Neither is searched or cached; only this one carries a
+    # message written for the user.
+    refused: bool = False
+    refuse_category: Optional[str] = None
     search_query: Optional[str] = None
     confidence: Optional[float] = None
     p_valid: Optional[float] = None
@@ -140,6 +146,19 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
 
     yield ProgressEvent("validating", "Checking the query...", 5)
 
+    # Refusal first, before anything is embedded. Cheap, and it means a
+    # refused query leaves no trace in the embedder or the vector store.
+    allowed, category, message = safety.check(query)
+    if not allowed:
+        yield ProgressEvent(
+            "refused", message, 0,
+            {"refused": True, "refuse_category": category,
+             "verdict": {"refused": True, "refuse_category": category,
+                         "source": "refused:safety", "is_valid": False,
+                         "reason": message, "llm_calls": 0}},
+        )
+        return
+
     # One embedding, reused by the classifier and the cache lookup.
     embedding = None
     try:
@@ -149,6 +168,17 @@ def process_query(query: str, force_refresh: bool = False) -> Iterator[ProgressE
         log.warning("embedding unavailable: %s", exc)
 
     verdict = classify(query, embedding)
+
+    if verdict.refused:
+        # Stops here: nothing is searched, nothing is summarised, and nothing
+        # about this query reaches the cache.
+        yield ProgressEvent(
+            "refused", verdict.reason, 0,
+            {"verdict": asdict(verdict), "refused": True,
+             "refuse_category": verdict.refuse_category},
+        )
+        return
+
     if not verdict.is_valid:
         yield ProgressEvent("error", verdict.reason or "That is not a searchable query.", 0,
                             {"verdict": asdict(verdict)})
@@ -307,6 +337,8 @@ def run(query: str, force_refresh: bool = False) -> Dict[str, Any]:
         last = event
     if last is None:
         return {"error": "pipeline produced no result"}
+    if last.stage == "refused":
+        return {"refused": True, "message": last.message, **last.data}
     if last.stage == "error":
         return {"error": last.message, **last.data}
     return last.to_dict()

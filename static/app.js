@@ -38,6 +38,7 @@
 
   var STAGE_LABELS = {
     validating: "Checking the query",
+    refused: "Declined",
     classified: "Classified",
     cache: "Checking the cache",
     cache_miss: "Cache decision",
@@ -145,7 +146,20 @@
     });
   }
 
+  function showRefusal(message) {
+    // Deliberately not the error styling. Nothing failed -- the agent declined,
+    // and a red box implies the user should retry.
+    alertBox.className = "alert warning";
+    alertBox.innerHTML = '<span class="ico" aria-hidden="true">\u2298</span><span>' +
+                         esc(message) + "</span>";
+    alertBox.classList.remove("hidden");
+    progressCard.classList.add("hidden");
+    result.classList.add("hidden");
+    setBusy(false);
+  }
+
   function showError(message) {
+    alertBox.className = "alert";
     alertBox.innerHTML = '<span class="ico" aria-hidden="true">✕</span><span>' +
                          esc(message) + "</span>";
     alertBox.classList.remove("hidden");
@@ -383,6 +397,11 @@
 
       if (data.progress != null) progressFill.style.width = data.progress + "%";
 
+      if (data.stage === "refused") {
+        showRefusal(data.message);
+        source.close();
+        return;
+      }
       if (data.stage === "error") {
         showError(data.message);
         source.close();

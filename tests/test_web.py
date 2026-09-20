@@ -247,3 +247,30 @@ def test_cache_purge_removes_expired_only(client, cache, monkeypatch):
 def test_cache_clear(client, cache):
     cache.add_to_cache("q one here", "S", volatility=vp.STATIC)
     assert client.post("/cache-clear").status_code == 200
+
+
+# --- refusal -----------------------------------------------------------------
+
+
+def test_sse_reports_a_refusal(client):
+    events = _events(client.get("/search_progress?query=free+porn+videos"))
+    assert events[-1]["stage"] == "refused"
+    assert events[-1]["refused"] is True
+    assert not any(e["stage"] == "error" for e in events)
+
+
+def test_json_search_returns_403_for_a_refusal(client):
+    """403, not 400: the query was understood and declined, not malformed."""
+    resp = client.post("/search", data={"query": "free porn videos"})
+    assert resp.status_code == 403
+    assert resp.get_json()["refused"] is True
+
+
+def test_refused_query_is_not_cached_via_the_web_route(client, cache):
+    client.get("/search_progress?query=free+porn+videos")
+    assert client.get("/cache-stats").get_json()["total_queries"] == 0
+
+
+def test_legitimate_health_query_still_works_over_http(client):
+    body = client.post("/search", data={"query": "how does HIV spread"}).get_json()
+    assert "summary" in body

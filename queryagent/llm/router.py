@@ -24,6 +24,7 @@ from typing import Dict, Optional, Sequence, Tuple
 
 from queryagent import classifier
 from queryagent import config
+from queryagent import safety
 from queryagent import volatility as vp
 
 from . import prompts
@@ -87,14 +88,22 @@ def route(
     if not any(ch.isalpha() for ch in stripped):
         return _invalid("no alphabetic characters", "gate")
 
-    # 2. Memo. A repeat inside the hour is free.
+    # 2. Refusal, deterministic. Before the memo deliberately: a refused
+    #    query must not be memoised, embedded, searched or stored, and this
+    #    check costs nothing.
+    allowed, category, message = safety.check(stripped)
+    if not allowed:
+        log.info("refused a query (%s)", category)  # text deliberately not logged
+        return _refused(category, message, "safety")
+
+    # 3. Memo. A repeat inside the hour is free.
     cached = _memo_get(key)
     if cached:
         cached["source"] = f"memo({cached.get('source', '')})"
         cached["llm_calls"] = 0
         return cached
 
-    # 3. Classifier gate. Rejects junk before any LLM call. The 0.05 threshold
+    # 4. Classifier gate. Rejects junk before any LLM call. The 0.05 threshold
     #    rather than the model's own 0.5 boundary -- see classifier.is_junk.
     label, p_valid = classifier.classify_query_with_confidence(stripped, embedding)
     if p_valid is not None and p_valid < config.LR_REJECT_P:
@@ -103,7 +112,7 @@ def route(
             "lr", p_valid=p_valid,
         )
 
-    # 4. Deterministic volatility. A realtime match settles it outright: this
+    # 5. Deterministic volatility. A realtime match settles it outright: this
     #    is the highest-value skip, since "live score" and "stock price" are
     #    common and now cost nothing, forever.
     guess, rule = vp.heuristic_volatility(stripped)
@@ -112,7 +121,7 @@ def route(
         _memo_put(key, verdict)
         return verdict
 
-    # 5. Router. One call.
+    # 6. Router. One call.
     llm_result = None
     if allow_llm and not config.LLM_DISABLED:
         llm_result, meta = call_json(
@@ -137,6 +146,13 @@ def route(
         # Deliberately not memoized: a degraded verdict would then be reused
         # for an hour even after the LLM came back.
         return verdict
+
+    if llm_result.get("refuse") is True:
+        category = str(llm_result.get("refuse_category") or "other")
+        if category == "none":
+            category = "other"
+        log.info("router refused a query (%s)", category)
+        return _refused(category, safety.message_for(category), "llm", llm_calls=1)
 
     intent = str(llm_result.get("intent", "information_seeking"))
     if not llm_result.get("valid", True) or intent in {"navigation", "command", "gibberish"}:
@@ -198,7 +214,22 @@ def _build(
         "degraded": degraded,
         "escalated_from": escalated_from if escalated_from != volatility else None,
         "heuristic_floor": heuristic_floor,
+        "refused": False, "refuse_category": None,
     }
+
+
+def _refused(category: Optional[str], message: str, source: str,
+             llm_calls: int = 0) -> dict:
+    """A query the agent will not answer.
+
+    Distinct from invalid: an invalid query is malformed, a refused one is
+    understood and declined. The pipeline must not search or cache either, but
+    only this one carries a message written for the user to read.
+    """
+    verdict = _invalid(message, f"refused:{source}", llm_calls=llm_calls)
+    verdict["refused"] = True
+    verdict["refuse_category"] = category
+    return verdict
 
 
 def _invalid(reason: str, source: str, p_valid=None, llm_calls: int = 0) -> dict:
@@ -208,4 +239,5 @@ def _invalid(reason: str, source: str, p_valid=None, llm_calls: int = 0) -> dict
         "reason": reason, "source": source, "confidence": None,
         "p_valid": p_valid, "llm_calls": llm_calls, "degraded": False,
         "escalated_from": None, "heuristic_floor": None,
+        "refused": False, "refuse_category": None,
     }
